@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -190,6 +190,41 @@ ipcMain.handle('print-pdf-direct', async (event, options) => {
     try {
       if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
     } catch (e) {}
+    return { success: false, error: err.message };
+  }
+});
+
+// -------------------------------------------------------------
+// IPC: Open Document with Native Windows Software (Word / Excel)
+// -------------------------------------------------------------
+ipcMain.handle('open-native-document', async (event, options) => {
+  const { fileName, fileBase64 } = options || {};
+  if (!fileName) {
+    return { success: false, error: 'File name is missing' };
+  }
+
+  try {
+    const tempDir = app.getPath('temp');
+    const safeName = fileName.replace(/[/\\?%*:|"<>]/g, '_');
+    const targetFile = path.join(tempDir, `printdrop_${Date.now()}_${safeName}`);
+
+    if (fileBase64) {
+      const buffer = Buffer.from(fileBase64, 'base64');
+      fs.writeFileSync(targetFile, buffer);
+    } else {
+      // Create empty placeholder if no base64 provided
+      fs.writeFileSync(targetFile, Buffer.from([]));
+    }
+
+    const openResult = await shell.openPath(targetFile);
+    if (openResult) {
+      console.warn('shell.openPath warning:', openResult);
+      return { success: false, error: openResult };
+    }
+
+    return { success: true, path: targetFile };
+  } catch (err) {
+    console.error('Failed to open native application:', err);
     return { success: false, error: err.message };
   }
 });

@@ -577,6 +577,65 @@ export default function DesktopApp() {
     setChoosingEditorDoc(d);
   };
 
+  // Launch real native desktop software (MS Word / Excel) via Electron IPC or browser download
+  const handleOpenNativeApp = async (d: JobDocument, type: 'word' | 'excel') => {
+    setLoadingDocId(d.id);
+    try {
+      const blob = await getDocumentBlob(d);
+      const electron = (window as any).require ? (window as any).require('electron') : null;
+
+      // Ensure appropriate extension for desktop software association
+      let fileName = d.originalName;
+      const lower = fileName.toLowerCase();
+      if (type === 'word' && !lower.endsWith('.docx') && !lower.endsWith('.doc')) {
+        fileName = fileName.replace(/\.[^/.]+$/, '') + '.docx';
+      } else if (type === 'excel' && !lower.endsWith('.xlsx') && !lower.endsWith('.xls') && !lower.endsWith('.csv')) {
+        fileName = fileName.replace(/\.[^/.]+$/, '') + '.xlsx';
+      }
+
+      if (electron?.ipcRenderer) {
+        let base64 = '';
+        if (blob) {
+          const buffer = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          base64 = window.btoa(binary);
+        }
+
+        const res = await electron.ipcRenderer.invoke('open-native-document', {
+          fileName,
+          fileBase64: base64,
+        });
+
+        if (res?.success) {
+          return;
+        }
+      }
+
+      // Fallback for regular web browser: trigger file download so Windows opens with default app
+      if (blob) {
+        const fileUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = fileUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(fileUrl);
+      } else {
+        alert(`Opening ${fileName} in Microsoft ${type === 'word' ? 'Word' : 'Excel'}...`);
+      }
+    } catch (err: any) {
+      console.error('Failed to open native document:', err);
+      alert('Unable to launch desktop app: ' + err.message);
+    } finally {
+      setLoadingDocId(null);
+    }
+  };
+
   // Windows Direct Hardware Print Handler (using pdf-to-printer & electron IPC)
   const handlePrintDocument = async (d: JobDocument) => {
     setLoadingDocId(d.id);
@@ -1597,11 +1656,22 @@ export default function DesktopApp() {
           </main>
         </div>
       )}
-      {/* Choose Editor Modal (Ask to open in Word or Excel) */}
+      {/* Choose Editor Modal (Ask to open in Real Desktop Word/Excel or Built-in) */}
       {choosingEditorDoc && (
         <ChooseEditorModal
           documentName={choosingEditorDoc.originalName}
           customerNote={choosingEditorDoc.note}
+          isElectron={!!(window as any).require}
+          onOpenNativeWord={() => {
+            const targetDoc = choosingEditorDoc;
+            setChoosingEditorDoc(null);
+            handleOpenNativeApp(targetDoc, 'word');
+          }}
+          onOpenNativeExcel={() => {
+            const targetDoc = choosingEditorDoc;
+            setChoosingEditorDoc(null);
+            handleOpenNativeApp(targetDoc, 'excel');
+          }}
           onSelectWord={async () => {
             const targetDoc = choosingEditorDoc;
             setChoosingEditorDoc(null);

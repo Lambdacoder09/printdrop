@@ -1,11 +1,14 @@
-import React from 'react';
-import { X, FileText, Table, Edit3, ArrowRight } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, FileText, Table, Edit3, ArrowRight, Laptop, Monitor, AlertCircle } from 'lucide-react';
 
 interface ChooseEditorModalProps {
   documentName: string;
   customerNote?: string;
   onSelectWord: () => void;
   onSelectExcel: () => void;
+  onOpenNativeWord?: () => void;
+  onOpenNativeExcel?: () => void;
+  isElectron?: boolean;
   onClose: () => void;
 }
 
@@ -14,14 +17,17 @@ export default function ChooseEditorModal({
   customerNote,
   onSelectWord,
   onSelectExcel,
+  onOpenNativeWord,
+  onOpenNativeExcel,
+  isElectron = false,
   onClose,
 }: ChooseEditorModalProps) {
   const lower = documentName.toLowerCase();
   const isSuggestedExcel = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-      <div className="bg-white border border-stone-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-stone-900/60 backdrop-blur-xs flex items-center justify-center p-4 select-none">
+      <div className="bg-white border border-stone-200 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -29,10 +35,10 @@ export default function ChooseEditorModal({
               <div className="w-7 h-7 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center shadow-xs">
                 <Edit3 className="w-4 h-4" />
               </div>
-              <h3 className="text-base font-bold text-stone-900">Choose Workstation Editor</h3>
+              <h3 className="text-base font-bold text-stone-900">Choose Document Editor</h3>
             </div>
             <p className="text-xs text-stone-500">
-              Select which editor to open for <span className="text-stone-800 font-semibold truncate inline-block max-w-[280px] align-bottom">"{documentName}"</span>
+              Select how you want to edit <span className="text-stone-800 font-semibold truncate inline-block max-w-[280px] align-bottom">"{documentName}"</span>
             </p>
           </div>
           <button
@@ -51,77 +57,150 @@ export default function ChooseEditorModal({
           </div>
         )}
 
-        {/* Choice Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          {/* Word Option */}
-          <button
-            type="button"
-            onClick={onSelectWord}
-            className={`p-4 rounded-xl border text-left transition relative flex flex-col justify-between group cursor-pointer ${
-              !isSuggestedExcel
-                ? 'bg-blue-50/70 border-blue-400 hover:bg-blue-100/70 ring-1 ring-blue-400/40 shadow-xs'
-                : 'bg-stone-50 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
-            }`}
-          >
-            {!isSuggestedExcel && (
-              <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded text-[9px] font-bold bg-blue-600 text-white uppercase tracking-wider shadow-xs">
-                Recommended
-              </span>
-            )}
-            <div className="space-y-2.5">
-              <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                W
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-stone-900 group-hover:text-blue-700 transition">Word Document Editor</h4>
-                <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">
-                  Edit text, fix spelling, replace customer addresses, adjust headings and layout on A4 paper.
-                </p>
-              </div>
+        {/* Section 1: Official Native Desktop Software (Microsoft Office on Windows PC) */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800 uppercase tracking-wider">
+              <Monitor className="w-3.5 h-3.5 text-blue-600" />
+              <span>1. Real Desktop Software (Installed on PC)</span>
             </div>
-            <div className="mt-4 pt-3 border-t border-stone-200/80 flex items-center justify-between text-xs font-semibold text-blue-600 group-hover:text-blue-700">
-              <span>Open in Word</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-            </div>
-          </button>
+            <span className="text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              Best Quality & Formatting
+            </span>
+          </div>
 
-          {/* Excel Option */}
-          <button
-            type="button"
-            onClick={onSelectExcel}
-            className={`p-4 rounded-xl border text-left transition relative flex flex-col justify-between group cursor-pointer ${
-              isSuggestedExcel
-                ? 'bg-emerald-50/70 border-emerald-400 hover:bg-emerald-100/70 ring-1 ring-emerald-400/40 shadow-xs'
-                : 'bg-stone-50 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
-            }`}
-          >
-            {isSuggestedExcel && (
-              <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white uppercase tracking-wider shadow-xs">
-                Recommended
-              </span>
-            )}
-            <div className="space-y-2.5">
-              <div className="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
-                X
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Open in Microsoft Word */}
+            <button
+              type="button"
+              onClick={onOpenNativeWord || onSelectWord}
+              className={`p-3.5 rounded-xl border text-left transition relative flex flex-col justify-between group cursor-pointer ${
+                !isSuggestedExcel
+                  ? 'bg-blue-50/80 border-blue-400 hover:bg-blue-100/90 ring-2 ring-blue-500/20 shadow-xs'
+                  : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
+              }`}
+            >
+              {!isSuggestedExcel && (
+                <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-blue-600 text-white uppercase tracking-wider">
+                  Recommended
+                </span>
+              )}
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-sm shrink-0 shadow-xs">
+                  W
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-stone-900 group-hover:text-blue-700 transition">
+                    Microsoft Word (PC)
+                  </h4>
+                  <p className="text-[10px] text-stone-500 mt-0.5 leading-snug">
+                    Opens directly in desktop MS Word with full layout, fonts, margins & direct Ctrl+P print.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h4 className="text-sm font-bold text-stone-900 group-hover:text-emerald-700 transition">Excel Spreadsheet Editor</h4>
-                <p className="text-[11px] text-stone-500 mt-1 leading-relaxed">
-                  Modify columns, prices, quantities, formulas, and format tabular bill sheets into grid tables.
-                </p>
+              <div className="mt-3 pt-2 border-t border-stone-200/80 flex items-center justify-between text-[11px] font-bold text-blue-600 group-hover:text-blue-700">
+                <span>Launch MS Word</span>
+                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
               </div>
+            </button>
+
+            {/* Open in Microsoft Excel */}
+            <button
+              type="button"
+              onClick={onOpenNativeExcel || onSelectExcel}
+              className={`p-3.5 rounded-xl border text-left transition relative flex flex-col justify-between group cursor-pointer ${
+                isSuggestedExcel
+                  ? 'bg-emerald-50/80 border-emerald-400 hover:bg-emerald-100/90 ring-2 ring-emerald-500/20 shadow-xs'
+                  : 'bg-stone-50 border-stone-200 hover:bg-stone-100'
+              }`}
+            >
+              {isSuggestedExcel && (
+                <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-emerald-600 text-white uppercase tracking-wider">
+                  Recommended
+                </span>
+              )}
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-black text-sm shrink-0 shadow-xs">
+                  X
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-stone-900 group-hover:text-emerald-700 transition">
+                    Microsoft Excel (PC)
+                  </h4>
+                  <p className="text-[10px] text-stone-500 mt-0.5 leading-snug">
+                    Opens directly in desktop MS Excel with formulas, cell auto-fit, and grid printing.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 pt-2 border-t border-stone-200/80 flex items-center justify-between text-[11px] font-bold text-emerald-600 group-hover:text-emerald-700">
+                <span>Launch MS Excel</span>
+                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition" />
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Section 2: In-Dashboard Integrated Web Editors */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800 uppercase tracking-wider">
+              <Laptop className="w-3.5 h-3.5 text-stone-600" />
+              <span>2. Built-In Dashboard Editor (No MS Office Needed)</span>
             </div>
-            <div className="mt-4 pt-3 border-t border-stone-200/80 flex items-center justify-between text-xs font-semibold text-emerald-600 group-hover:text-emerald-700">
-              <span>Open in Excel</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-            </div>
-          </button>
+            <span className="text-[10px] font-semibold text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full">
+              Instant In-Browser
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Built-in Word Clone */}
+            <button
+              type="button"
+              onClick={onSelectWord}
+              className="p-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-left transition flex items-center justify-between group cursor-pointer shadow-2xs"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-stone-800 text-white flex items-center justify-center text-xs font-bold">
+                  W
+                </div>
+                <div>
+                  <h5 className="text-xs font-bold text-stone-900 group-hover:text-blue-600 transition">
+                    In-Dashboard Word
+                  </h5>
+                  <p className="text-[10px] text-stone-500">Quick typos, headings, and paragraphs</p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-stone-400 group-hover:text-blue-600 transition" />
+            </button>
+
+            {/* Built-in Excel Clone */}
+            <button
+              type="button"
+              onClick={onSelectExcel}
+              className="p-3 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 text-left transition flex items-center justify-between group cursor-pointer shadow-2xs"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-stone-800 text-white flex items-center justify-center text-xs font-bold">
+                  X
+                </div>
+                <div>
+                  <h5 className="text-xs font-bold text-stone-900 group-hover:text-emerald-600 transition">
+                    In-Dashboard Spreadsheet
+                  </h5>
+                  <p className="text-[10px] text-stone-500">Grid cells, tables, sums & bill rows</p>
+                </div>
+              </div>
+              <ArrowRight className="w-3.5 h-3.5 text-stone-400 group-hover:text-emerald-600 transition" />
+            </button>
+          </div>
         </div>
 
         {/* Footer info */}
         <div className="flex items-center justify-between pt-2 border-t border-stone-100">
           <p className="text-[11px] text-stone-500">
-            Edits are saved directly to this customer's counter order.
+            {isElectron
+              ? '✓ Connected to Windows Desktop Shell'
+              : 'Tip: Run counter terminal in Electron for automatic 1-click MS Office launch.'}
           </p>
           <button
             type="button"
