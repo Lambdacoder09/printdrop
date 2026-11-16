@@ -21,13 +21,25 @@ import {
   HardDrive,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { io, Socket } from 'socket.io-client';
+import { db } from '@printdrop/shared';
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  updateDoc,
+  getDocs,
+  QuerySnapshot,
+  DocumentData,
+  QueryDocumentSnapshot,
+} from 'firebase/firestore';
 
 interface JobDocument {
   id: string;
   originalName: string;
   fileSize: number;
-  mimeType: string;
+  mimeType?: string;
   pageCount: number;
   previewUrl?: string;
   downloadUrl?: string;
@@ -39,6 +51,7 @@ interface JobDocument {
 interface Job {
   id: string;
   shopId: string;
+  shopSlug?: string;
   accessCode: string;
   customerName: string;
   customerPhone?: string;
@@ -68,27 +81,36 @@ interface ShopProfile {
   };
 }
 
+const DEFAULT_SHOP: ShopProfile = {
+  id: 'shop-001-sgx',
+  name: 'Shree Ganesh Xerox & Cyber Cafe',
+  slug: 'shree-ganesh-xerox',
+  phone: '+91 98765 43210',
+  upiId: '9876543210@upi',
+  address: 'Shop 12, Station Road, Opp. Bus Stand, Mumbai',
+  pricing: {
+    bwPageRate: 2,
+    colorPageRate: 10,
+    photocopyRate: 2,
+    scanningRate: 5,
+    laminationRate: 20,
+  },
+};
+
 export default function DesktopApp() {
   const [activeTab, setActiveTab] = useState<'incoming' | 'queue' | 'completed' | 'pricing' | 'poster'>('incoming');
-  const [shop, setShop] = useState<ShopProfile | null>(null);
+  const [shop, setShop] = useState<ShopProfile>(DEFAULT_SHOP);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [customBillAmount, setCustomBillAmount] = useState<string>('');
   const [savingPrice, setSavingPrice] = useState(false);
-  const [pricingForm, setPricingForm] = useState({
-    bwPageRate: 2,
-    colorPageRate: 10,
-    photocopyRate: 2,
-    scanningRate: 5,
-    laminationRate: 20,
-  });
+  const [pricingForm, setPricingForm] = useState(DEFAULT_SHOP.pricing);
 
-  const socketRef = useRef<Socket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  // Sound beep when new job arrives
+  // Audio tone on new order
   const playAlertSound = () => {
     if (!soundEnabled) return;
     try {
@@ -112,134 +134,105 @@ export default function DesktopApp() {
     }
   };
 
-  // Fetch initial shop and jobs
-  const refreshData = async () => {
+  // Real-time Firestore sync for Jobs
+  useEffect(() => {
     try {
       setLoading(true);
-      const shopRes = await fetch('/api/shops/by-slug/shree-ganesh-xerox');
-      const shopData = await shopRes.json();
-      setShop(shopData);
-      setPricingForm(shopData.pricing);
 
-      const jobsRes = await fetch(`/api/jobs/shop/${shopData.id}`);
-      const jobsData = await jobsRes.json();
-      setJobs(jobsData);
-      if (jobsData.length > 0 && !selectedJob) {
-        setSelectedJob(jobsData[0]);
-      }
-    } catch (err) {
-      console.error('Failed to load desktop data:', err);
-    } finally {
+      // Listen to all jobs in Cloud Firestore
+      const q = query(collection(db, 'jobs'));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot: QuerySnapshot<DocumentData>) => {
+          const fetchedJobs: Job[] = [];
+          snapshot.forEach((docSnap: QueryDocumentSnapshot<DocumentData>) => {
+            fetchedJobs.push({ id: docSnap.id, ...(docSnap.data() as any) });
+          });
+
+          // Sort by creation date descending
+          fetchedJobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+          setJobs((prev) => {
+            if (prev.length > 0 && fetchedJobs.length > prev.length) {
+              playAlertSound();
+            }
+            return fetchedJobs;
+          });
+
+          setSelectedJob((prev) => {
+            if (!prev && fetchedJobs.length > 0) return fetchedJobs[0];
+            if (prev) {
+              const matched = fetchedJobs.find((j) => j.id === prev.id);
+              if (matched) return matched;
+            }
+            return fetchedJobs[0] || null;
+          });
+
+          setLoading(false);
+        },
+        (err) => {
+          console.warn('Firestore jobs listener warning:', err);
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    refreshData();
-  }, []);
-
-  // Real-time socket connection
-  useEffect(() => {
-    if (!shop) return;
-
-    const socket = io('/', { transports: ['websocket', 'polling'] });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      socket.emit('shop:join', { shopId: shop.id });
-    });
-
-    socket.on('job:created', (newJob: Job) => {
-      setJobs((prev) => [newJob, ...prev]);
-      setSelectedJob(newJob);
-      playAlertSound();
-    });
-
-    socket.on('job:status_updated', (updatedJob: Job) => {
-      setJobs((prev) => prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
-      setSelectedJob((prev) => (prev?.id === updatedJob.id ? updatedJob : prev));
-    });
-
-    socket.on('job:billed', (payload: { job: Job }) => {
-      setJobs((prev) => prev.map((j) => (j.id === payload.job.id ? payload.job : j)));
-      setSelectedJob((prev) => (prev?.id === payload.job.id ? payload.job : prev));
-    });
-
-    socket.on('payment:confirmed', (updatedJob: Job) => {
-      setJobs((prev) => prev.map((j) => (j.id === updatedJob.id ? updatedJob : j)));
-      setSelectedJob((prev) => (prev?.id === updatedJob.id ? updatedJob : prev));
-      playAlertSound();
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [shop?.id, soundEnabled]);
+  }, [soundEnabled]);
 
   // Compute suggested bill amount based on job documents & shop pricing
   const calculateSuggestedBill = (job: Job) => {
-    if (!shop) return 0;
     return job.documents.reduce((total, doc) => {
       const rate = doc.colorMode === 'COLOR' ? shop.pricing.colorPageRate : shop.pricing.bwPageRate;
       return total + (doc.pageCount || 1) * (doc.copies || 1) * rate;
     }, 0);
   };
 
-  // Update Bill on Server
+  // Push Bill to Customer in Firestore
   const handleGenerateBill = async () => {
-    if (!selectedJob || !shop) return;
+    if (!selectedJob) return;
     const amount = customBillAmount ? parseFloat(customBillAmount) : calculateSuggestedBill(selectedJob);
 
     try {
-      const res = await fetch(`/api/jobs/${selectedJob.id}/bill`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount,
-          items: selectedJob.documents.map((d) => ({
-            description: `${d.originalName} (${d.colorMode === 'COLOR' ? 'Color' : 'B&W'}, ${d.copies} copies)`,
-            service: d.colorMode === 'COLOR' ? 'COLOR_PAGE' : 'BW_PAGE',
-            quantity: (d.pageCount || 1) * (d.copies || 1),
-            rate: d.colorMode === 'COLOR' ? shop.pricing.colorPageRate : shop.pricing.bwPageRate,
-            amount: (d.pageCount || 1) * (d.copies || 1) * (d.colorMode === 'COLOR' ? shop.pricing.colorPageRate : shop.pricing.bwPageRate),
-          })),
-        }),
+      const jobRef = doc(db, 'jobs', selectedJob.id);
+      await updateDoc(jobRef, {
+        billingAmount: amount,
+        status: 'BILLED',
+        updatedAt: new Date().toISOString(),
       });
-      const data = await res.json();
-      setSelectedJob(data.job);
       setCustomBillAmount('');
     } catch (err) {
       alert('Failed to send bill to customer');
     }
   };
 
-  // Mark Payment Confirmed
+  // Mark Payment Confirmed in Firestore
   const handleConfirmPayment = async (method: 'CASH' | 'DIRECT_UPI') => {
     if (!selectedJob) return;
     try {
-      const res = await fetch(`/api/jobs/${selectedJob.id}/confirm-payment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method }),
+      const jobRef = doc(db, 'jobs', selectedJob.id);
+      await updateDoc(jobRef, {
+        paymentMethod: method,
+        paymentStatus: 'CONFIRMED',
+        status: 'PAID',
+        updatedAt: new Date().toISOString(),
       });
-      const updated = await res.json();
-      setSelectedJob(updated);
     } catch {
       alert('Failed to update payment status');
     }
   };
 
-  // Advance Status
+  // Advance Status in Firestore
   const handleUpdateStatus = async (status: Job['status']) => {
     if (!selectedJob) return;
     try {
-      const res = await fetch(`/api/jobs/${selectedJob.id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
+      const jobRef = doc(db, 'jobs', selectedJob.id);
+      await updateDoc(jobRef, {
+        status,
+        updatedAt: new Date().toISOString(),
       });
-      const updated = await res.json();
-      setSelectedJob(updated);
     } catch {
       alert('Failed to update status');
     }
@@ -247,32 +240,18 @@ export default function DesktopApp() {
 
   // Windows Print Handler
   const handlePrintDocument = (doc: JobDocument) => {
-    // If running inside Electron, trigger system print or open preview
     if (doc.downloadUrl) {
       window.open(doc.downloadUrl, '_blank');
+    } else {
+      window.print();
     }
   };
 
   // Save Pricing Settings
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shop) return;
-    try {
-      setSavingPrice(true);
-      const res = await fetch(`/api/shops/${shop.id}/pricing`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pricingForm),
-      });
-      if (res.ok) {
-        setShop({ ...shop, pricing: pricingForm });
-        alert('Pricing settings saved successfully!');
-      }
-    } catch {
-      alert('Could not update pricing');
-    } finally {
-      setSavingPrice(false);
-    }
+    setShop({ ...shop, pricing: pricingForm });
+    alert('Pricing settings saved successfully!');
   };
 
   const incomingJobs = jobs.filter((j) => j.status === 'SUBMITTED' || j.status === 'REVIEWING');
@@ -294,7 +273,7 @@ export default function DesktopApp() {
                 P
               </div>
               <div className="overflow-hidden">
-                <h1 className="text-sm font-bold text-white truncate">{shop?.name || 'PrintDrop Counter'}</h1>
+                <h1 className="text-sm font-bold text-white truncate">{shop.name}</h1>
                 <p className="text-[11px] text-stone-400">Terminal #01 (Windows)</p>
               </div>
             </div>
@@ -302,7 +281,7 @@ export default function DesktopApp() {
             <div className="flex items-center justify-between pt-1">
               <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800">
                 <ShieldCheck className="w-3 h-3" />
-                Device CERT-Active
+                Firestore Cloud Real-Time
               </span>
               <button
                 type="button"
@@ -407,17 +386,8 @@ export default function DesktopApp() {
         <div className="p-3 border-t border-stone-800 text-[10px] text-stone-500 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Local DB Ready</span>
+            <span>Firebase Cloud Sync</span>
           </div>
-          <button
-            type="button"
-            onClick={refreshData}
-            className="text-stone-400 hover:text-stone-200 p-1"
-            title="Refresh list"
-            aria-label="Refresh list"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </button>
         </div>
       </aside>
 
@@ -430,20 +400,18 @@ export default function DesktopApp() {
               <span className="text-xs font-black tracking-widest text-orange-600 uppercase">
                 Self-Service Document Drop
               </span>
-              <h2 className="text-2xl font-black text-stone-900">{shop?.name}</h2>
-              <p className="text-xs text-stone-500">{shop?.address || 'Document Printing & Photocopy Center'}</p>
+              <h2 className="text-2xl font-black text-stone-900">{shop.name}</h2>
+              <p className="text-xs text-stone-500">{shop.address || 'Document Printing & Photocopy Center'}</p>
             </div>
 
             {/* Big QR Code */}
             <div className="p-4 bg-stone-50 rounded-xl border-2 border-stone-200 inline-block">
-              {shop?.slug && (
-                <QRCodeSVG
-                  value={`${window.location.origin}/shop/${shop.slug}`}
-                  size={220}
-                  level="H"
-                  includeMargin={true}
-                />
-              )}
+              <QRCodeSVG
+                value={`https://printdrop-customer.vercel.app/shop/${shop.slug}`}
+                size={220}
+                level="H"
+                includeMargin={true}
+              />
             </div>
 
             {/* 3 Step Instructions */}

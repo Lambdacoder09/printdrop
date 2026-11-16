@@ -208,3 +208,5 @@ export const SocketEvents = {
   PAYMENT_CONFIRMED: 'payment:confirmed',
   DEVICE_PULSE: 'device:pulse',
 } as const;
+
+export * from './firebase';

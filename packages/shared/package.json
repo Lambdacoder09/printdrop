@@ -9,6 +9,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
+    "firebase": "^13.3.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

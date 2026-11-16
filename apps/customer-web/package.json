@@ -11,6 +11,7 @@
   "dependencies": {
     "@printdrop/shared": "workspace:*",
     "clsx": "^2.1.1",
+    "firebase": "^13.3.0",
     "lucide-react": "^0.475.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",

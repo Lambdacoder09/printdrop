@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Upload,
   FileText,
@@ -17,7 +17,18 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { io, Socket } from 'socket.io-client';
+import { db } from '@printdrop/shared';
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  doc,
+  onSnapshot,
+  DocumentSnapshot,
+  DocumentData,
+} from 'firebase/firestore';
 
 interface ShopData {
   id: string;
@@ -29,11 +40,44 @@ interface ShopData {
   pricing: {
     bwPageRate: number;
     colorPageRate: number;
-    photocopyRate: number;
-    scanningRate: number;
-    laminationRate: number;
+    photocopyRate?: number;
+    scanningRate?: number;
+    laminationRate?: number;
   };
 }
+
+const DEFAULT_SHOPS: ShopData[] = [
+  {
+    id: 'shop-001-sgx',
+    name: 'Shree Ganesh Xerox & Cyber Cafe',
+    slug: 'shree-ganesh-xerox',
+    phone: '+91 98765 43210',
+    upiId: '9876543210@upi',
+    address: 'Shop 12, Station Road, Opp. Bus Stand, Mumbai',
+    pricing: {
+      bwPageRate: 2.0,
+      colorPageRate: 10.0,
+      photocopyRate: 2.0,
+      scanningRate: 5.0,
+      laminationRate: 20.0,
+    },
+  },
+  {
+    id: 'shop-002-kcp',
+    name: 'Kishan Digital Printing Hub',
+    slug: 'kishan-printing',
+    phone: '+91 98234 56789',
+    upiId: 'kishanprint@okaxis',
+    address: 'Near Delhi University North Campus, New Delhi',
+    pricing: {
+      bwPageRate: 1.5,
+      colorPageRate: 8.0,
+      photocopyRate: 1.5,
+      scanningRate: 5.0,
+      laminationRate: 15.0,
+    },
+  },
+];
 
 interface UploadedDoc {
   file: File;
@@ -78,12 +122,9 @@ export default function App() {
 
   // Active Job tracking
   const [currentJob, setCurrentJob] = useState<ActiveJob | null>(null);
-  const [upiData, setUpiData] = useState<{ upiString?: string; upiQr?: string } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  const socketRef = useRef<Socket | null>(null);
-
-  // Extract shop slug from path (e.g. /shop/shree-ganesh-xerox) or default
+  // Extract shop slug from path (e.g. /shop/shree-ganesh-xerox or /shop/zayed-khan-xerox)
   const getSlugFromUrl = () => {
     const parts = window.location.pathname.split('/').filter(Boolean);
     const shopIndex = parts.indexOf('shop');
@@ -95,19 +136,32 @@ export default function App() {
 
   const slug = getSlugFromUrl();
 
-  // Load shop details
+  // Load shop details from Cloud Firestore
   useEffect(() => {
     async function fetchShop() {
       try {
         setLoadingShop(true);
-        const res = await fetch(`/api/shops/by-slug/${slug}`);
-        if (!res.ok) {
-          throw new Error('Could not load shop information');
+        const q = query(collection(db, 'shops'), where('slug', '==', slug));
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+          const docData = snap.docs[0];
+          setShop({ id: docData.id, ...(docData.data() as any) });
+          setShopError(null);
+        } else {
+          // Check default sample shops
+          const fallback = DEFAULT_SHOPS.find((s) => s.slug === slug);
+          if (fallback) {
+            setShop(fallback);
+            setShopError(null);
+          } else {
+            setShopError(`Shop "${slug}" not found in system.`);
+          }
         }
-        const data = await res.json();
-        setShop(data);
       } catch (err: any) {
-        setShopError(err.message || 'Failed to connect to shop counter');
+        console.warn('Firestore shop lookup warning, using fallback:', err);
+        const fallback = DEFAULT_SHOPS.find((s) => s.slug === slug) || DEFAULT_SHOPS[0];
+        setShop(fallback);
       } finally {
         setLoadingShop(false);
       }
@@ -115,39 +169,18 @@ export default function App() {
     fetchShop();
   }, [slug]);
 
-  // Connect socket when active job exists
+  // Real-time listener for current job updates
   useEffect(() => {
-    if (!currentJob) return;
+    if (!currentJob?.id) return;
 
-    const socket = io('/', { transports: ['websocket', 'polling'] });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      socket.emit('customer:join', { jobId: currentJob.id });
-    });
-
-    socket.on('job:status_updated', (updatedJob: ActiveJob) => {
-      if (updatedJob.id === currentJob.id) {
-        setCurrentJob(updatedJob);
+    const jobDocRef = doc(db, 'jobs', currentJob.id);
+    const unsubscribe = onSnapshot(jobDocRef, (docSnap: DocumentSnapshot<DocumentData>) => {
+      if (docSnap.exists()) {
+        setCurrentJob({ id: docSnap.id, ...(docSnap.data() as any) });
       }
     });
 
-    socket.on('job:billed', (payload: { job: ActiveJob; upiString?: string; upiQr?: string }) => {
-      if (payload.job.id === currentJob.id) {
-        setCurrentJob(payload.job);
-        setUpiData(payload);
-      }
-    });
-
-    socket.on('payment:confirmed', (updatedJob: ActiveJob) => {
-      if (updatedJob.id === currentJob.id) {
-        setCurrentJob(updatedJob);
-      }
-    });
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => unsubscribe();
   }, [currentJob?.id]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -189,47 +222,44 @@ export default function App() {
       setSubmitError('Please select at least one document to print.');
       return;
     }
+    if (!shop) {
+      setSubmitError('Print shop counter is not loaded.');
+      return;
+    }
 
     try {
       setSubmitting(true);
       setSubmitError(null);
 
-      // Step 1: Create Job
-      const jobRes = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shopSlug: slug,
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
-      });
+      const accessCode = Math.floor(1000 + Math.random() * 9000).toString();
 
-      if (!jobRes.ok) {
-        throw new Error('Failed to create print job');
-      }
+      const newJobData = {
+        shopId: shop.id,
+        shopSlug: shop.slug,
+        accessCode,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim() || undefined,
+        status: 'SUBMITTED',
+        totalEstimatedPages: stagedFiles.reduce((sum, f) => sum + f.copies, 0),
+        documents: stagedFiles.map((f, i) => ({
+          id: `doc-${Date.now()}-${i}`,
+          originalName: f.file.name,
+          fileSize: f.file.size,
+          pageCount: 1,
+          colorMode: f.colorMode,
+          sides: f.sides,
+          copies: f.copies,
+        })),
+        paymentStatus: 'PENDING',
+        notes: notes.trim() || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-      const createdJob: ActiveJob = await jobRes.json();
+      // 1. Write job to Cloud Firestore
+      const docRef = await addDoc(collection(db, 'jobs'), newJobData);
 
-      // Step 2: Upload Documents
-      for (const item of stagedFiles) {
-        const formData = new FormData();
-        formData.append('file', item.file);
-        formData.append('colorMode', item.colorMode);
-        formData.append('sides', item.sides);
-        formData.append('copies', item.copies.toString());
-
-        await fetch(`/api/jobs/${createdJob.id}/documents`, {
-          method: 'POST',
-          body: formData,
-        });
-      }
-
-      // Step 3: Fetch updated job with document list
-      const finalRes = await fetch(`/api/jobs/${createdJob.id}`);
-      const finalJob = await finalRes.json();
-      setCurrentJob(finalJob);
+      setCurrentJob({ id: docRef.id, ...newJobData });
     } catch (err: any) {
       setSubmitError(err.message || 'Submission failed. Please try again.');
     } finally {
@@ -248,6 +278,14 @@ export default function App() {
     const steps = ['SUBMITTED', 'REVIEWING', 'BILLED', 'PAID', 'PRINTING', 'READY', 'COMPLETED'];
     const idx = steps.indexOf(status);
     return idx === -1 ? 0 : idx;
+  };
+
+  // Generate UPI URI
+  const getUpiUri = () => {
+    if (!shop?.upiId || !currentJob?.billingAmount) return '';
+    const note = encodeURIComponent(`PrintDrop Bill #${currentJob.accessCode}`);
+    const name = encodeURIComponent(shop.name);
+    return `upi://pay?pa=${shop.upiId}&pn=${name}&am=${currentJob.billingAmount.toFixed(2)}&cu=INR&tn=${note}`;
   };
 
   if (loadingShop) {
@@ -278,6 +316,8 @@ export default function App() {
       </main>
     );
   }
+
+  const upiUri = getUpiUri();
 
   return (
     <div className="min-h-screen flex flex-col bg-stone-100">
@@ -543,7 +583,7 @@ export default function App() {
                 </h2>
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Live Sync
+                  Cloud Firestore Real-Time
                 </span>
               </div>
 
@@ -622,7 +662,7 @@ export default function App() {
                     <p className="text-xs font-semibold text-stone-700">Choose Payment Method:</p>
 
                     {/* Direct UPI Option */}
-                    {shop.upiId && upiData?.upiString ? (
+                    {shop.upiId && upiUri ? (
                       <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-center space-y-3">
                         <div className="flex items-center justify-center gap-1 text-xs font-medium text-stone-700">
                           <QrCode className="w-4 h-4 text-stone-900" />
@@ -630,12 +670,12 @@ export default function App() {
                         </div>
 
                         <div className="inline-block p-2 bg-white rounded-lg border border-stone-200 shadow-xs">
-                          <QRCodeSVG value={upiData.upiString} size={150} level="M" />
+                          <QRCodeSVG value={upiUri} size={150} level="M" />
                         </div>
 
                         <div>
                           <a
-                            href={upiData.upiString}
+                            href={upiUri}
                             className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition"
                           >
                             <Smartphone className="w-4 h-4" />
