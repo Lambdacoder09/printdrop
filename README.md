@@ -22,6 +22,14 @@ Print-shop/
 
 ---
 
+## Production Deployments
+
+- **Customer Web (Mobile QR)**: [https://printdrop-customer.vercel.app](https://printdrop-customer.vercel.app)
+- **Central Admin Console**: [https://printdrop-admin.vercel.app](https://printdrop-admin.vercel.app)
+- **GitHub Repository**: [https://github.com/Lambdacoder09/printdrop](https://github.com/Lambdacoder09/printdrop)
+
+---
+
 ## Applications & Ports
 
 | Application | Port | Description |
