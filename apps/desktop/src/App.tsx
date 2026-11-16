@@ -28,7 +28,7 @@ import SheetEditorModal from './components/SheetEditorModal';
 import PdfViewerModal from './components/PdfViewerModal';
 import ChooseEditorModal from './components/ChooseEditorModal';
 import { convertDocumentToPdfUrl } from './utils/documentToPdf';
-import { db } from '@printdrop/shared';
+import { db, parsePageRange, calculateBillablePages } from '@printdrop/shared';
 import {
   collection,
   query,
@@ -54,6 +54,7 @@ interface JobDocument {
   colorMode: 'BW' | 'COLOR';
   sides: 'SINGLE' | 'DOUBLE_LONG';
   copies: number;
+  pageRange?: string;
   note?: string;
   hasContent?: boolean;
 }
@@ -242,6 +243,14 @@ export default function DesktopApp() {
   const [savingPrice, setSavingPrice] = useState(false);
   const [pricingForm, setPricingForm] = useState(DEFAULT_SHOP.pricing);
 
+  // Hardware Printers & Windows Spooling (pdf-to-printer & electron)
+  const [isElectron, setIsElectron] = useState(false);
+  const [printers, setPrinters] = useState<Array<{ name: string; isDefault?: boolean }>>([]);
+  const [selectedBwPrinter, setSelectedBwPrinter] = useState<string>(() => localStorage.getItem('printdrop_bw_printer') || '');
+  const [selectedColorPrinter, setSelectedColorPrinter] = useState<string>(() => localStorage.getItem('printdrop_color_printer') || '');
+  const [deviceToken, setDeviceToken] = useState<string>('');
+  const [isTestPrinting, setIsTestPrinting] = useState(false);
+
   // In-Browser Document & Sheet Editors
   const [editingDoc, setEditingDoc] = useState<JobDocument | null>(null);
   const [editingDocBuffer, setEditingDocBuffer] = useState<ArrayBuffer | null>(null);
@@ -319,6 +328,48 @@ export default function DesktopApp() {
     }
   }, []);
 
+  // Detect connected physical printers & device token via Electron IPC
+  useEffect(() => {
+    try {
+      const electron = (window as any).require ? (window as any).require('electron') : null;
+      if (electron?.ipcRenderer) {
+        setIsElectron(true);
+        electron.ipcRenderer.invoke('get-printers').then((res: any) => {
+          if (res?.success && Array.isArray(res.printers)) {
+            setPrinters(res.printers);
+            const defaultName = res.printers.find((p: any) => p.isDefault)?.name || res.printers[0]?.name || '';
+            setSelectedBwPrinter((prev) => {
+              if (prev) return prev;
+              if (defaultName) localStorage.setItem('printdrop_bw_printer', defaultName);
+              return defaultName;
+            });
+            setSelectedColorPrinter((prev) => {
+              if (prev) return prev;
+              if (defaultName) localStorage.setItem('printdrop_color_printer', defaultName);
+              return defaultName;
+            });
+          }
+        });
+
+        electron.ipcRenderer.invoke('get-device-token').then((res: any) => {
+          if (res?.success && res.tokenData?.token) {
+            setDeviceToken(res.tokenData.token);
+          } else {
+            const generatedToken = 'PD-POS-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            setDeviceToken(generatedToken);
+            electron.ipcRenderer.invoke('save-device-token', {
+              token: generatedToken,
+              shopSlug: shop.slug,
+              assignedAt: new Date().toISOString(),
+            });
+          }
+        });
+      }
+    } catch {
+      // Browser environment
+    }
+  }, [shop.slug]);
+
   // Real-time Firestore sync for Jobs
   useEffect(() => {
     try {
@@ -367,11 +418,12 @@ export default function DesktopApp() {
     }
   }, [soundEnabled]);
 
-  // Compute suggested bill amount based on job documents & shop pricing
+  // Compute suggested bill amount based on job documents & shop pricing (factoring custom page ranges)
   const calculateSuggestedBill = (job: Job) => {
     return job.documents.reduce((total, doc) => {
       const rate = doc.colorMode === 'COLOR' ? shop.pricing.colorPageRate : shop.pricing.bwPageRate;
-      return total + (doc.pageCount || 1) * (doc.copies || 1) * rate;
+      const billablePages = calculateBillablePages(doc.pageRange, doc.pageCount || 1, doc.copies || 1);
+      return total + billablePages * rate;
     }, 0);
   };
 
@@ -516,14 +568,129 @@ export default function DesktopApp() {
     setChoosingEditorDoc(d);
   };
 
-  // Windows Print Handler
+  // Windows Direct Hardware Print Handler (using pdf-to-printer & electron IPC)
   const handlePrintDocument = async (d: JobDocument) => {
-    const url = await getDocUrl(d);
-    if (url) {
+    setLoadingDocId(d.id);
+    try {
+      const url = await getDocUrl(d);
+      if (!url) {
+        alert('Could not load document for printing.');
+        return;
+      }
+
+      // Check if Electron native print bridge is active
+      const electron = (window as any).require ? (window as any).require('electron') : null;
+      if (electron?.ipcRenderer) {
+        const res = await fetch(url);
+        const arrayBuf = await res.arrayBuffer();
+        let pdfBytes: any = new Uint8Array(arrayBuf);
+
+        // Slice PDF if custom page range specified by customer (e.g. "1-3, 5")
+        const effectiveRange = d.pageRange;
+        if (effectiveRange && effectiveRange.trim() && effectiveRange.trim().toLowerCase() !== 'all') {
+          try {
+            const { PDFDocument } = await import('pdf-lib');
+            const sourceDoc = await PDFDocument.load(pdfBytes);
+            const totalPages = sourceDoc.getPageCount();
+            const targetPages = parsePageRange(effectiveRange, totalPages);
+            if (targetPages.length > 0 && targetPages.length < totalPages) {
+              const subDoc = await PDFDocument.create();
+              const indices = targetPages.map((p) => p - 1).filter((idx) => idx >= 0 && idx < totalPages);
+              const copiedPages = await subDoc.copyPages(sourceDoc, indices);
+              copiedPages.forEach((cp) => subDoc.addPage(cp));
+              pdfBytes = await subDoc.save();
+            }
+          } catch (sliceErr) {
+            console.warn('PDF page slicing note, spooling full document:', sliceErr);
+          }
+        }
+
+        // Convert bytes to base64 for IPC transfer
+        let binary = '';
+        const len = pdfBytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(pdfBytes[i]);
+        }
+        const base64 = window.btoa(binary);
+
+        const targetPrinter = d.colorMode === 'COLOR'
+          ? (selectedColorPrinter || printers[0]?.name)
+          : (selectedBwPrinter || printers[0]?.name);
+
+        const printRes = await electron.ipcRenderer.invoke('print-pdf-direct', {
+          pdfBase64: base64,
+          printer: targetPrinter,
+          copies: d.copies || 1,
+          monochrome: d.colorMode !== 'COLOR',
+          pages: effectiveRange && effectiveRange.toLowerCase() !== 'all' ? effectiveRange : undefined,
+        });
+
+        if (printRes?.success) {
+          alert(`Document successfully sent to printer: ${targetPrinter || 'Default System Printer'}`);
+          return;
+        } else {
+          console.warn('Direct spooler failed, falling back to browser dialog:', printRes?.error);
+        }
+      }
+
+      // Browser fallback
       const win = window.open(url, '_blank');
       if (win) {
         win.focus();
       }
+    } catch (err: any) {
+      console.error('Print failure:', err);
+      alert('Print error: ' + (err.message || 'Check printer connection'));
+    } finally {
+      setLoadingDocId(null);
+    }
+  };
+
+  // Test Print Counter Slip
+  const handleTestPrint = async (printerName: string) => {
+    setIsTestPrinting(true);
+    try {
+      const electron = (window as any).require ? (window as any).require('electron') : null;
+      if (!electron?.ipcRenderer) {
+        alert('Test printing directly to hardware is available in the desktop application.');
+        return;
+      }
+      const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+      const testDoc = await PDFDocument.create();
+      const page = testDoc.addPage([400, 320]);
+      const font = await testDoc.embedFont(StandardFonts.HelveticaBold);
+      const regularFont = await testDoc.embedFont(StandardFonts.Helvetica);
+
+      page.drawText('PrintDrop Workstation Test Slip', { x: 30, y: 270, size: 16, font, color: rgb(0.9, 0.4, 0.1) });
+      page.drawText(`Shop: ${shop.name}`, { x: 30, y: 235, size: 12, font: regularFont });
+      page.drawText(`Printer: ${printerName || 'Default'}`, { x: 30, y: 210, size: 12, font: regularFont });
+      page.drawText(`Date: ${new Date().toLocaleString('en-IN')}`, { x: 30, y: 185, size: 10, font: regularFont });
+      page.drawText('Spooler Status: Windows Hardware Connected OK!', { x: 30, y: 145, size: 11, font, color: rgb(0.1, 0.6, 0.2) });
+      page.drawText('Counter Token: ' + (deviceToken || 'Enrolled'), { x: 30, y: 115, size: 10, font: regularFont });
+
+      const pdfBytes = await testDoc.save();
+      let binary = '';
+      for (let i = 0; i < pdfBytes.byteLength; i++) {
+        binary += String.fromCharCode(pdfBytes[i]);
+      }
+      const base64 = window.btoa(binary);
+
+      const res = await electron.ipcRenderer.invoke('print-pdf-direct', {
+        pdfBase64: base64,
+        printer: printerName,
+        copies: 1,
+        monochrome: false,
+      });
+
+      if (res?.success) {
+        alert(`Test slip printed successfully to ${printerName || 'Default Printer'}!`);
+      } else {
+        alert(`Test print error: ${res?.error || 'Check printer queue'}`);
+      }
+    } catch (e: any) {
+      alert(`Test print failed: ${e.message}`);
+    } finally {
+      setIsTestPrinting(false);
     }
   };
 
@@ -836,6 +1003,106 @@ export default function DesktopApp() {
                 </button>
               </div>
             </form>
+
+            {/* Workstation Hardware Printers Configuration */}
+            <div className="bg-stone-850 border border-stone-800 rounded-xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Printer className="w-4 h-4 text-orange-500" />
+                    <span>Physical Printers & Direct Spooling</span>
+                  </h3>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Configure hardware printers connected via USB or Local Network.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                    isElectron ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-stone-800 text-stone-400'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${isElectron ? 'bg-emerald-400' : 'bg-stone-500'}`} />
+                    {isElectron ? 'Direct Windows Spooler Active' : 'Web Preview Fallback'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-stone-300 mb-1">
+                    Default Black & White Printer (Laser)
+                  </label>
+                  <select
+                    value={selectedBwPrinter}
+                    onChange={(e) => {
+                      setSelectedBwPrinter(e.target.value);
+                      localStorage.setItem('printdrop_bw_printer', e.target.value);
+                    }}
+                    className="w-full px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-xs text-white"
+                  >
+                    {printers.length > 0 ? (
+                      printers.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name} {p.isDefault ? '(Default)' : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">Default System Printer</option>
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isTestPrinting}
+                    onClick={() => handleTestPrint(selectedBwPrinter)}
+                    className="mt-2 text-[11px] font-medium text-orange-400 hover:text-orange-300 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Printer className="w-3 h-3" />
+                    <span>{isTestPrinting ? 'Printing test slip...' : 'Test Print B&W Slip'}</span>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-stone-300 mb-1">
+                    Default Color Printer (Inkjet)
+                  </label>
+                  <select
+                    value={selectedColorPrinter}
+                    onChange={(e) => {
+                      setSelectedColorPrinter(e.target.value);
+                      localStorage.setItem('printdrop_color_printer', e.target.value);
+                    }}
+                    className="w-full px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-xs text-white"
+                  >
+                    {printers.length > 0 ? (
+                      printers.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name} {p.isDefault ? '(Default)' : ''}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">Default System Printer</option>
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isTestPrinting}
+                    onClick={() => handleTestPrint(selectedColorPrinter)}
+                    className="mt-2 text-[11px] font-medium text-orange-400 hover:text-orange-300 transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Printer className="w-3 h-3" />
+                    <span>{isTestPrinting ? 'Printing test slip...' : 'Test Print Color Slip'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Counter Machine Device Token */}
+              <div className="pt-3 border-t border-stone-800 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-stone-400">Workstation Machine Token: </span>
+                  <span className="font-mono text-orange-400 font-bold">{deviceToken || 'Enrolled in LocalAppData'}</span>
+                </div>
+                <span className="text-[11px] text-stone-500">Stored at %LOCALAPPDATA%/PrintDrop</span>
+              </div>
+            </div>
           </div>
         </main>
       ) : (
@@ -1054,6 +1321,9 @@ export default function DesktopApp() {
                                 <h4 className="text-xs font-bold text-white truncate group-hover:text-orange-400 transition">{doc.originalName}</h4>
                                 <p className="text-[11px] text-stone-400">
                                   {doc.pageCount} pages • {doc.colorMode === 'COLOR' ? 'Color' : 'Black & White'} • {doc.copies} copy • {doc.sides === 'SINGLE' ? 'Single side' : 'Both sides'}
+                                  {doc.pageRange && doc.pageRange.toLowerCase() !== 'all' && (
+                                    <span className="ml-1.5 text-orange-400 font-semibold">• Pages: {doc.pageRange}</span>
+                                  )}
                                 </p>
                               </div>
                             </div>
