@@ -57,13 +57,51 @@
   aside,
   nav,
   button,
-  .no-print {
+  select,
+  .no-print,
+  .print\:hidden,
+  .editor-chrome,
+  .editor-header,
+  .editor-ribbon,
+  .editor-toolbar,
+  .editor-statusbar {
     display: none !important;
     width: 0 !important;
     height: 0 !important;
     overflow: hidden !important;
     position: absolute !important;
     left: -9999px !important;
+  }
+
+  /* Word & Excel Editor Modal Print Isolation */
+  .doc-editor-modal,
+  .sheet-editor-modal {
+    position: static !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  .doc-canvas-wrapper {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  .doc-page-canvas {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+    outline: none !important;
   }
 
   /* Reset layout flex/grid containers so nothing is constrained */

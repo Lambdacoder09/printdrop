@@ -252,6 +252,24 @@ export class JobsService {
 
     this.memoryJobs.set(job.id, job);
 
+    // Auto-Purge Privacy Lifecycle: Once completed or cancelled, purge uploaded documents from storage
+    if (status === JobStatus.COMPLETED || status === JobStatus.CANCELLED) {
+      setTimeout(async () => {
+        try {
+          if (job.documents && job.documents.length > 0) {
+            for (const doc of job.documents) {
+              if (doc.storageKey) {
+                await this.storage.deleteFile(doc.storageKey);
+              }
+            }
+            this.logger.log(`[Auto-Purge] Cleaned up documents for completed job #${job.accessCode}`);
+          }
+        } catch (purgeErr) {
+          this.logger.warn(`Failed to auto-purge files for job ${job.id}: ${purgeErr}`);
+        }
+      }, 5000); // 5-second grace window after completion
+    }
+
     this.events.emitToShop(job.shopId, SocketEvents.JOB_STATUS_UPDATED, job);
     this.events.emitToJob(job.id, SocketEvents.JOB_STATUS_UPDATED, job);
 

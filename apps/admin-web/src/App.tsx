@@ -15,7 +15,7 @@ import {
   Search,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { db } from '@printdrop/shared';
+import { db, encodeShopToken } from '@printdrop/shared';
 import {
   collection,
   addDoc,
@@ -350,6 +350,28 @@ export default function AdminApp() {
                       </span>
                     </td>
                     <td className="p-3 text-right space-x-2">
+                      <a
+                        href={`https://printdrop-workstation.vercel.app/?token=${encodeShopToken(shop.slug)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 rounded bg-stone-900 hover:bg-stone-800 text-white font-medium inline-flex items-center gap-1 shadow-2xs"
+                        title="Open this shop's private encrypted workstation terminal"
+                      >
+                        <Monitor className="w-3.5 h-3.5" />
+                        Open Terminal
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const token = encodeShopToken(shop.slug);
+                          navigator.clipboard.writeText(`https://printdrop-workstation.vercel.app/?token=${token}`);
+                          alert(`Copied Encrypted Terminal Link for ${shop.name} to clipboard!`);
+                        }}
+                        className="px-2.5 py-1 rounded bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium inline-flex items-center gap-1"
+                        title="Copy Encrypted Terminal URL"
+                      >
+                        Copy Key
+                      </button>
                       <button
                         type="button"
                         onClick={() => setActiveQrModalShop(shop)}

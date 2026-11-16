@@ -85,6 +85,7 @@ interface UploadedDoc {
   colorMode: 'BW' | 'COLOR';
   sides: 'SINGLE' | 'DOUBLE_LONG';
   copies: number;
+  pageRange?: string;
   note?: string;
 }
 
@@ -105,6 +106,7 @@ interface ActiveJob {
     colorMode: string;
     sides: string;
     copies: number;
+    pageRange?: string;
     note?: string;
   }>;
   createdAt: string;
@@ -195,6 +197,7 @@ export default function App() {
       colorMode: 'BW',
       sides: 'SINGLE',
       copies: 1,
+      pageRange: 'All',
     }));
     setStagedFiles((prev) => [...prev, ...newItems]);
     e.target.value = '';
@@ -286,6 +289,7 @@ export default function App() {
           colorMode: item.colorMode,
           sides: item.sides,
           copies: item.copies,
+          pageRange: item.pageRange?.trim() || 'All',
           hasContent: true,
         };
         if (item.note?.trim()) {

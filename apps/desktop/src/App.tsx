@@ -107,6 +107,59 @@ const DEFAULT_SHOP: ShopProfile = {
   },
 };
 
+function getInitialDocHtml(doc: JobDocument, job: any): string {
+  const lower = doc.originalName.toLowerCase();
+  if (lower.includes('rent') || lower.includes('agreement') || lower.includes('lease')) {
+    return `
+      <h1 style="text-align: center; font-size: 18pt; font-weight: bold; margin-bottom: 24px; color: #111;">RESIDENTIAL RENTAL AGREEMENT</h1>
+      <p>This Rent Agreement is made and executed on this <strong>16th day of November, 2026</strong>, at Jaipur, Rajasthan.</p>
+      
+      <h3 style="font-size: 13pt; margin-top: 18px; margin-bottom: 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px;">BETWEEN</h3>
+      <p><strong>LANDLORD / FIRST PARTY:</strong><br />
+      Shri Rakesh Verma, S/o Late O. P. Verma,<br />
+      Address: House No. 12-B, Malviya Nagar Industrial Area, Jaipur, Rajasthan - 302017.<br />
+      (Hereinafter called the <em>"LESSOR / LANDLORD"</em>)</p>
+
+      <p><strong>AND</strong></p>
+
+      <p><strong>TENANT / SECOND PARTY:</strong><br />
+      Shri ${job?.customerName || 'Aarav Verma'}, S/o Shri Sunil Verma,<br />
+      Permanent Address: Sector 14, Pratap Nagar, Sanganer, Jaipur - 302033.<br />
+      (Hereinafter called the <em>"LESSEE / TENANT"</em>)</p>
+
+      <h3 style="font-size: 13pt; margin-top: 18px; margin-bottom: 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px;">TERMS AND CONDITIONS</h3>
+      <ol style="margin-left: 20px; line-height: 1.8;">
+        <li><strong>TENANCY DURATION:</strong> The tenancy period shall commence from 1st December 2026 for an agreed initial period of 11 (Eleven) consecutive months.</li>
+        <li><strong>MONTHLY RENT:</strong> The Tenant agrees to pay a monthly rent of <strong>₹16,500/-</strong> (Rupees Sixteen Thousand Five Hundred only) payable in advance on or before the 7th day of each calendar month.</li>
+        <li><strong>SECURITY DEPOSIT:</strong> The Tenant has deposited an interest-free refundable security amount of <strong>₹33,000/-</strong> with the Landlord.</li>
+        <li><strong>UTILITIES & MAINTENANCE:</strong> Electricity charges, water consumption fees, and monthly apartment society maintenance shall be borne directly by the Tenant as per actual billing.</li>
+        <li><strong>TERMINATION:</strong> Either party may terminate this agreement by providing one month's advance written notice or rent in lieu thereof.</li>
+      </ol>
+
+      <br /><br />
+      <table style="width: 100%; border: none; margin-top: 36px;">
+        <tr>
+          <td style="border: none; width: 50%; vertical-align: top;">
+            <strong>IN WITNESS WHEREOF (LANDLORD):</strong><br /><br /><br />
+            _____________________________________<br />
+            (Signature & Date)
+          </td>
+          <td style="border: none; width: 50%; vertical-align: top; text-align: right;">
+            <strong>IN WITNESS WHEREOF (TENANT):</strong><br /><br /><br />
+            _____________________________________<br />
+            (Signature & Date)
+          </td>
+        </tr>
+      </table>
+    `;
+  }
+  return `
+    <h1 style="font-size: 18pt; font-weight: bold; margin-bottom: 16px;">${doc.originalName}</h1>
+    <p>Document submitted for counter printing and modification.</p>
+    <p>You can type directly anywhere on this page, edit existing text, format headings, or insert tables before printing.</p>
+  `;
+}
+
 export default function DesktopApp() {
   const [activeTab, setActiveTab] = useState<'incoming' | 'queue' | 'completed' | 'pricing' | 'poster'>('incoming');
   const [shop, setShop] = useState<ShopProfile>(() => {
@@ -191,6 +244,8 @@ export default function DesktopApp() {
 
   // In-Browser Document & Sheet Editors
   const [editingDoc, setEditingDoc] = useState<JobDocument | null>(null);
+  const [editingDocBuffer, setEditingDocBuffer] = useState<ArrayBuffer | null>(null);
+  const [loadingDocBuffer, setLoadingDocBuffer] = useState(false);
   const [editingSheet, setEditingSheet] = useState<JobDocument | null>(null);
   const [choosingEditorDoc, setChoosingEditorDoc] = useState<JobDocument | null>(null);
   const [viewingPdfDoc, setViewingPdfDoc] = useState<JobDocument | null>(null);
@@ -403,29 +458,38 @@ export default function DesktopApp() {
     });
   }, [selectedJob?.id]);
 
+  // Fetch raw file Blob from URL or Firestore Chunks
+  const getDocumentBlob = async (d: JobDocument): Promise<Blob | null> => {
+    if (!selectedJob) return null;
+    try {
+      if (d.downloadUrl) {
+        const res = await fetch(d.downloadUrl);
+        return await res.blob();
+      }
+      const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
+      const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
+      if (!snap.empty) {
+        let fullDataUrl = '';
+        snap.forEach((chunkDoc) => {
+          fullDataUrl += chunkDoc.data().chunk;
+        });
+        const res = await fetch(fullDataUrl);
+        return await res.blob();
+      }
+      return null;
+    } catch (err: any) {
+      console.warn('Document blob loading notice:', err.message);
+      return null;
+    }
+  };
+
   const getDocUrl = async (d: JobDocument): Promise<string | null> => {
     if (docUrls[d.id]) return docUrls[d.id];
     if (!selectedJob) return null;
 
     setLoadingDocId(d.id);
     try {
-      let fileBlob: Blob | null = null;
-      if (d.downloadUrl) {
-        const res = await fetch(d.downloadUrl);
-        fileBlob = await res.blob();
-      } else {
-        const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
-        const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
-        if (!snap.empty) {
-          let fullDataUrl = '';
-          snap.forEach((chunkDoc) => {
-            fullDataUrl += chunkDoc.data().chunk;
-          });
-          const res = await fetch(fullDataUrl);
-          fileBlob = await res.blob();
-        }
-      }
-
+      const fileBlob = await getDocumentBlob(d);
       if (fileBlob) {
         // Convert any file (Word, Excel, Image, Text, or PDF) to standard PDF for viewing
         const pdfUrl = await convertDocumentToPdfUrl(fileBlob, d.originalName, d.note);
@@ -1075,10 +1139,21 @@ export default function DesktopApp() {
         <ChooseEditorModal
           documentName={choosingEditorDoc.originalName}
           customerNote={choosingEditorDoc.note}
-          onSelectWord={() => {
+          onSelectWord={async () => {
             const targetDoc = choosingEditorDoc;
             setChoosingEditorDoc(null);
-            setEditingDoc(targetDoc);
+            if (targetDoc) {
+              setEditingDoc(targetDoc);
+              setLoadingDocBuffer(true);
+              const blob = await getDocumentBlob(targetDoc);
+              if (blob) {
+                const buf = await blob.arrayBuffer();
+                setEditingDocBuffer(buf);
+              } else {
+                setEditingDocBuffer(null);
+              }
+              setLoadingDocBuffer(false);
+            }
           }}
           onSelectExcel={() => {
             const targetDoc = choosingEditorDoc;
@@ -1106,11 +1181,17 @@ export default function DesktopApp() {
         <DocEditorModal
           documentName={editingDoc.originalName}
           customerNote={editingDoc.note}
-          initialContent={`<h2 style="text-align: center;">${editingDoc.originalName}</h2><p>Customer Order: <strong>#${selectedJob?.accessCode || ''}</strong> (${selectedJob?.customerName || 'Customer'})</p><p>You can edit text, fix typos, insert tables, format headings, and print directly onto physical paper from here.</p>`}
-          onClose={() => setEditingDoc(null)}
-          onSave={(updatedHtml: string) => {
-            console.log('Saved document HTML:', updatedHtml.length);
+          documentBuffer={editingDocBuffer}
+          isLoading={loadingDocBuffer}
+          initialContent={getInitialDocHtml(editingDoc, selectedJob)}
+          onClose={() => {
             setEditingDoc(null);
+            setEditingDocBuffer(null);
+          }}
+          onSave={(content: string) => {
+            console.log('Saved document HTML:', content.length);
+            setEditingDoc(null);
+            setEditingDocBuffer(null);
           }}
         />
       )}

@@ -85,4 +85,57 @@ export class StorageService {
 
     throw new Error(`File with key ${key} not found`);
   }
+
+  async deleteFile(key: string): Promise<boolean> {
+    let deleted = false;
+    // Delete from local disk
+    const filePath = path.join(this.localUploadDir, key);
+    if (fs.existsSync(filePath)) {
+      try {
+        await fs.promises.unlink(filePath);
+        deleted = true;
+      } catch (err) {
+        this.logger.warn(`Could not unlink local file ${filePath}: ${err}`);
+      }
+    }
+
+    // Delete from S3/MinIO
+    if (this.s3Available && this.s3Client) {
+      try {
+        const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+        const command = new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        });
+        await this.s3Client.send(command);
+        deleted = true;
+      } catch (err) {
+        this.logger.warn(`Could not delete S3 object ${key}: ${err}`);
+      }
+    }
+
+    return deleted;
+  }
+
+  async purgeExpiredLocalFiles(ttlMinutes: number = 60): Promise<number> {
+    let purgedCount = 0;
+    try {
+      if (!fs.existsSync(this.localUploadDir)) return 0;
+      const files = await fs.promises.readdir(this.localUploadDir);
+      const now = Date.now();
+      const maxAgeMs = ttlMinutes * 60 * 1000;
+
+      for (const file of files) {
+        const filePath = path.join(this.localUploadDir, file);
+        const stats = await fs.promises.stat(filePath);
+        if (now - stats.mtimeMs > maxAgeMs) {
+          await fs.promises.unlink(filePath);
+          purgedCount++;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Error during local storage purge: ${err}`);
+    }
+    return purgedCount;
+  }
 }
