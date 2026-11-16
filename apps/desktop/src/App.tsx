@@ -602,48 +602,55 @@ export default function DesktopApp() {
       {activeTab === 'poster' ? (
         /* Printable Counter QR Stand View */
         <main className="flex-1 bg-stone-900 p-8 overflow-y-auto flex flex-col items-center">
-          <div className="print-poster-card max-w-md w-full bg-white text-stone-950 rounded-2xl p-8 shadow-2xl border-4 border-stone-900 text-center space-y-6">
-            <div className="space-y-1">
-              <span className="text-xs font-black tracking-widest text-orange-600 uppercase">
+          <div className="print-poster-card max-w-lg w-full bg-white text-stone-950 rounded-2xl p-10 shadow-2xl border-4 border-stone-900 text-center space-y-8">
+            <div className="space-y-2">
+              <span className="poster-subheading text-sm sm:text-base font-black tracking-widest text-orange-600 uppercase">
                 Self-Service Document Drop
               </span>
-              <h2 className="text-2xl font-black text-stone-900">{shop.name}</h2>
-              <p className="text-xs text-stone-500">{shop.address || 'Document Printing & Photocopy Center'}</p>
+              <h2 className="poster-title text-3xl sm:text-4xl font-black text-stone-900 leading-tight">
+                {shop.name}
+              </h2>
+              <p className="poster-address text-sm sm:text-base text-stone-600 font-medium">
+                {shop.address || 'Document Printing & Photocopy Center'}
+              </p>
             </div>
 
             {/* Big QR Code */}
-            <div className="qr-container p-4 bg-stone-50 rounded-xl border-2 border-stone-200 inline-block">
+            <div className="qr-container p-6 bg-stone-50 rounded-2xl border-2 border-stone-200 inline-block shadow-sm">
               <QRCodeSVG
                 value={`https://printdrop-customer.vercel.app/shop/${shop.slug}`}
-                size={220}
+                size={260}
                 level="H"
                 includeMargin={true}
               />
+              <p className="poster-qr-hint text-xs sm:text-sm font-semibold text-stone-600 mt-3 uppercase tracking-wider">
+                Scan with your phone camera
+              </p>
             </div>
 
             {/* 3 Step Instructions */}
-            <div className="steps-grid grid grid-cols-3 gap-2 text-left pt-2 border-t border-stone-200">
-              <div className="p-2 rounded-lg bg-stone-100">
-                <span className="block text-sm font-black text-orange-600">1</span>
-                <p className="text-[11px] font-bold text-stone-900">Scan QR Code</p>
-                <p className="text-[10px] text-stone-600">With phone camera</p>
+            <div className="steps-grid grid grid-cols-3 gap-3 text-left pt-4 border-t-2 border-stone-200">
+              <div className="p-3.5 rounded-xl bg-stone-100/90 border border-stone-200/60">
+                <span className="step-num block text-xl font-black text-orange-600 mb-0.5">1</span>
+                <p className="step-title text-sm font-black text-stone-950">Scan QR Code</p>
+                <p className="step-desc text-xs text-stone-600 mt-0.5 leading-snug">With phone camera</p>
               </div>
-              <div className="p-2 rounded-lg bg-stone-100">
-                <span className="block text-sm font-black text-orange-600">2</span>
-                <p className="text-[11px] font-bold text-stone-900">Upload Files</p>
-                <p className="text-[10px] text-stone-600">PDF, JPG, Docs</p>
+              <div className="p-3.5 rounded-xl bg-stone-100/90 border border-stone-200/60">
+                <span className="step-num block text-xl font-black text-orange-600 mb-0.5">2</span>
+                <p className="step-title text-sm font-black text-stone-950">Upload Files</p>
+                <p className="step-desc text-xs text-stone-600 mt-0.5 leading-snug">PDF, Photos, Docs</p>
               </div>
-              <div className="p-2 rounded-lg bg-stone-100">
-                <span className="block text-sm font-black text-orange-600">3</span>
-                <p className="text-[11px] font-bold text-stone-900">Show Token</p>
-                <p className="text-[10px] text-stone-600">At the counter</p>
+              <div className="p-3.5 rounded-xl bg-stone-100/90 border border-stone-200/60">
+                <span className="step-num block text-xl font-black text-orange-600 mb-0.5">3</span>
+                <p className="step-title text-sm font-black text-stone-950">Show Token</p>
+                <p className="step-desc text-xs text-stone-600 mt-0.5 leading-snug">Collect at counter</p>
               </div>
             </div>
 
             <button
               type="button"
               onClick={() => window.print()}
-              className="no-print w-full py-3 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              className="no-print w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white text-sm font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
             >
               <Printer className="w-4 h-4" />
               Print Desk Stand Poster (A4 / Standee)
