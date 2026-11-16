@@ -25,6 +25,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import DocEditorModal from './components/DocEditorModal';
 import SheetEditorModal from './components/SheetEditorModal';
+import PdfViewerModal from './components/PdfViewerModal';
 import { db } from '@printdrop/shared';
 import {
   collection,
@@ -34,6 +35,7 @@ import {
   doc,
   updateDoc,
   getDocs,
+  orderBy,
   QuerySnapshot,
   DocumentData,
   QueryDocumentSnapshot,
@@ -51,6 +53,7 @@ interface JobDocument {
   sides: 'SINGLE' | 'DOUBLE_LONG';
   copies: number;
   note?: string;
+  hasContent?: boolean;
 }
 
 interface Job {
@@ -187,6 +190,11 @@ export default function DesktopApp() {
   // In-Browser Document & Sheet Editors
   const [editingDoc, setEditingDoc] = useState<JobDocument | null>(null);
   const [editingSheet, setEditingSheet] = useState<JobDocument | null>(null);
+  const [viewingPdfDoc, setViewingPdfDoc] = useState<JobDocument | null>(null);
+
+  // Cached blob URLs for uploaded document contents
+  const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+  const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -357,12 +365,75 @@ export default function DesktopApp() {
     }
   };
 
+  // Auto-prefetch document blobs for selected job
+  useEffect(() => {
+    if (!selectedJob) return;
+    selectedJob.documents.forEach((d) => {
+      if (d.downloadUrl || docUrls[d.id]) return;
+      (async () => {
+        try {
+          const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
+          const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
+          if (!snap.empty) {
+            let fullDataUrl = '';
+            snap.forEach((chunkDoc) => {
+              fullDataUrl += chunkDoc.data().chunk;
+            });
+            const res = await fetch(fullDataUrl);
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            setDocUrls((prev) => ({ ...prev, [d.id]: blobUrl }));
+          }
+        } catch (err) {
+          console.warn('Could not prefetch doc:', d.originalName, err);
+        }
+      })();
+    });
+  }, [selectedJob?.id]);
+
+  const getDocUrl = async (d: JobDocument): Promise<string | null> => {
+    if (docUrls[d.id]) return docUrls[d.id];
+    if (d.downloadUrl) return d.downloadUrl;
+    if (!selectedJob) return null;
+
+    setLoadingDocId(d.id);
+    try {
+      const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
+      const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
+      if (snap.empty) {
+        alert(`File content for "${d.originalName}" was not attached to this order (order was created before live upload sync). Ask the customer to re-upload.`);
+        return null;
+      }
+      let fullDataUrl = '';
+      snap.forEach((chunkDoc) => {
+        fullDataUrl += chunkDoc.data().chunk;
+      });
+      const res = await fetch(fullDataUrl);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      setDocUrls((prev) => ({ ...prev, [d.id]: blobUrl }));
+      return blobUrl;
+    } catch (err: any) {
+      alert('Failed to load document: ' + err.message);
+      return null;
+    } finally {
+      setLoadingDocId(null);
+    }
+  };
+
+  const handleViewDocument = async (d: JobDocument) => {
+    setViewingPdfDoc(d);
+    await getDocUrl(d);
+  };
+
   // Windows Print Handler
-  const handlePrintDocument = (doc: JobDocument) => {
-    if (doc.downloadUrl) {
-      window.open(doc.downloadUrl, '_blank');
-    } else {
-      window.print();
+  const handlePrintDocument = async (d: JobDocument) => {
+    const url = await getDocUrl(d);
+    if (url) {
+      const win = window.open(url, '_blank');
+      if (win) {
+        win.focus();
+      }
     }
   };
 
@@ -531,7 +602,7 @@ export default function DesktopApp() {
       {activeTab === 'poster' ? (
         /* Printable Counter QR Stand View */
         <main className="flex-1 bg-stone-900 p-8 overflow-y-auto flex flex-col items-center">
-          <div className="max-w-md w-full bg-white text-stone-950 rounded-2xl p-8 shadow-2xl border-4 border-stone-900 text-center space-y-6">
+          <div className="print-poster-card max-w-md w-full bg-white text-stone-950 rounded-2xl p-8 shadow-2xl border-4 border-stone-900 text-center space-y-6">
             <div className="space-y-1">
               <span className="text-xs font-black tracking-widest text-orange-600 uppercase">
                 Self-Service Document Drop
@@ -572,7 +643,7 @@ export default function DesktopApp() {
             <button
               type="button"
               onClick={() => window.print()}
-              className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2"
+              className="no-print w-full py-3 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md"
             >
               <Printer className="w-4 h-4" />
               Print Desk Stand Poster (A4 / Standee)
@@ -874,12 +945,16 @@ export default function DesktopApp() {
                           className="p-4 rounded-xl bg-stone-900 border border-stone-800 space-y-3"
                         >
                           <div className="flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                              <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-400 shrink-0">
+                            <div
+                              onClick={() => handleViewDocument(doc)}
+                              className="flex items-center gap-3 overflow-hidden cursor-pointer group"
+                              title="Click to view document"
+                            >
+                              <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-400 shrink-0 group-hover:bg-stone-700 transition">
                                 {isSheet ? <Table className="w-5 h-5 text-emerald-400" /> : <FileText className="w-5 h-5 text-blue-400" />}
                               </div>
                               <div className="overflow-hidden">
-                                <h4 className="text-xs font-bold text-white truncate">{doc.originalName}</h4>
+                                <h4 className="text-xs font-bold text-white truncate group-hover:text-orange-400 transition">{doc.originalName}</h4>
                                 <p className="text-[11px] text-stone-400">
                                   {doc.pageCount} pages • {doc.colorMode === 'COLOR' ? 'Color' : 'Black & White'} • {doc.copies} copy • {doc.sides === 'SINGLE' ? 'Single side' : 'Both sides'}
                                 </p>
@@ -888,45 +963,61 @@ export default function DesktopApp() {
 
                             {/* Print, Edit & Preview Actions */}
                             <div className="flex items-center gap-2 shrink-0">
-                              {/* Open in Word Editor Clone */}
-                              <button
-                                type="button"
-                                onClick={() => setEditingDoc(doc)}
-                                className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/60 text-blue-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
-                                title="Edit in browser Word clone before printing"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                Edit in Word
-                              </button>
-
-                              {/* Open in Excel Editor Clone */}
-                              <button
-                                type="button"
-                                onClick={() => setEditingSheet(doc)}
-                                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
-                                title="Edit in browser Excel clone before printing"
-                              >
-                                <Table className="w-3.5 h-3.5" />
-                                Edit in Excel
-                              </button>
-
-                              {doc.downloadUrl && (
-                                <a
-                                  href={doc.downloadUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
+                              {/* Open in Word Editor Clone (if Word/Text document) */}
+                              {(lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingDoc(doc)}
+                                  className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/60 text-blue-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
+                                  title="Edit in browser Word clone before printing"
                                 >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  View
-                                </a>
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  Edit in Word
+                                </button>
                               )}
+
+                              {/* Open in Excel Editor Clone (if Spreadsheet) */}
+                              {isSheet && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingSheet(doc)}
+                                  className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
+                                  title="Edit in browser Excel clone before printing"
+                                >
+                                  <Table className="w-3.5 h-3.5" />
+                                  Edit in Excel
+                                </button>
+                              )}
+
+                              {/* View / Open Original PDF / File */}
                               <button
                                 type="button"
-                                onClick={() => handlePrintDocument(doc)}
-                                className="px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-sm"
+                                disabled={loadingDocId === doc.id}
+                                onClick={() => handleViewDocument(doc)}
+                                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 disabled:opacity-50"
+                                title="Open customer document in browser"
                               >
-                                <Printer className="w-3.5 h-3.5" />
+                                {loadingDocId === doc.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                                View
+                              </button>
+
+                              {/* Print Original Document */}
+                              <button
+                                type="button"
+                                disabled={loadingDocId === doc.id}
+                                onClick={() => handlePrintDocument(doc)}
+                                className="px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                title="Print customer document"
+                              >
+                                {loadingDocId === doc.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Printer className="w-3.5 h-3.5" />
+                                )}
                                 Print
                               </button>
                             </div>
@@ -961,6 +1052,18 @@ export default function DesktopApp() {
           </main>
         </div>
       )}
+      {/* Official In-Browser PDF Document Viewer Modal */}
+      {viewingPdfDoc && (
+        <PdfViewerModal
+          documentName={viewingPdfDoc.originalName}
+          pdfUrl={docUrls[viewingPdfDoc.id] || viewingPdfDoc.downloadUrl || null}
+          customerNote={viewingPdfDoc.note}
+          isLoading={loadingDocId === viewingPdfDoc.id}
+          onClose={() => setViewingPdfDoc(null)}
+          onPrint={() => handlePrintDocument(viewingPdfDoc)}
+        />
+      )}
+
       {/* In-Browser Word Clone Editor Modal */}
       {editingDoc && (
         <DocEditorModal

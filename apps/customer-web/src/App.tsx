@@ -25,6 +25,7 @@ import {
   query,
   where,
   doc,
+  setDoc,
   onSnapshot,
   DocumentSnapshot,
   DocumentData,
@@ -120,6 +121,7 @@ export default function App() {
   const [notes, setNotes] = useState('');
   const [stagedFiles, setStagedFiles] = useState<UploadedDoc[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Active Job tracking
@@ -214,6 +216,15 @@ export default function App() {
     });
   };
 
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error(`Failed to read file ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim()) {
@@ -232,12 +243,58 @@ export default function App() {
     try {
       setSubmitting(true);
       setSubmitError(null);
+      setUploadStatus('Preparing documents...');
 
       const accessCode = Math.floor(1000 + Math.random() * 9000).toString();
 
       const trimmedName = customerName.trim();
       const trimmedPhone = customerPhone.trim();
       const trimmedNotes = notes.trim();
+
+      const jobDocRef = doc(collection(db, 'jobs'));
+      const jobId = jobDocRef.id;
+
+      const docsList: any[] = [];
+      const CHUNK_SIZE = 450000;
+
+      for (let i = 0; i < stagedFiles.length; i++) {
+        const item = stagedFiles[i];
+        setUploadStatus(`Uploading ${i + 1}/${stagedFiles.length}: ${item.file.name}...`);
+
+        const docId = `doc-${Date.now()}-${i}`;
+        const dataUrl = await readFileAsDataUrl(item.file);
+        const totalChunks = Math.ceil(dataUrl.length / CHUNK_SIZE);
+
+        const chunkPromises = [];
+        for (let c = 0; c < totalChunks; c++) {
+          const chunkData = dataUrl.slice(c * CHUNK_SIZE, (c + 1) * CHUNK_SIZE);
+          chunkPromises.push(
+            setDoc(doc(db, 'jobs', jobId, 'files', docId, 'chunks', c.toString()), {
+              chunk: chunkData,
+              index: c,
+            })
+          );
+        }
+        await Promise.all(chunkPromises);
+
+        const docItem: Record<string, any> = {
+          id: docId,
+          originalName: item.file.name,
+          fileSize: item.file.size,
+          mimeType: item.file.type || 'application/pdf',
+          pageCount: 1,
+          colorMode: item.colorMode,
+          sides: item.sides,
+          copies: item.copies,
+          hasContent: true,
+        };
+        if (item.note?.trim()) {
+          docItem.note = item.note.trim();
+        }
+        docsList.push(docItem);
+      }
+
+      setUploadStatus('Finalizing order for counter...');
 
       const newJobData: Record<string, any> = {
         shopId: shop.id,
@@ -246,21 +303,7 @@ export default function App() {
         customerName: trimmedName,
         status: 'SUBMITTED',
         totalEstimatedPages: stagedFiles.reduce((sum, f) => sum + f.copies, 0),
-        documents: stagedFiles.map((f, i) => {
-          const docItem: Record<string, any> = {
-            id: `doc-${Date.now()}-${i}`,
-            originalName: f.file.name,
-            fileSize: f.file.size,
-            pageCount: 1,
-            colorMode: f.colorMode,
-            sides: f.sides,
-            copies: f.copies,
-          };
-          if (f.note?.trim()) {
-            docItem.note = f.note.trim();
-          }
-          return docItem;
-        }),
+        documents: docsList,
         paymentStatus: 'PENDING',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -274,13 +317,14 @@ export default function App() {
       }
 
       // 1. Write job to Cloud Firestore
-      const docRef = await addDoc(collection(db, 'jobs'), newJobData);
+      await setDoc(jobDocRef, newJobData);
 
-      setCurrentJob({ id: docRef.id, ...newJobData } as ActiveJob);
+      setCurrentJob({ id: jobId, ...newJobData } as ActiveJob);
     } catch (err: any) {
       setSubmitError(err.message || 'Submission failed. Please try again.');
     } finally {
       setSubmitting(false);
+      setUploadStatus('');
     }
   };
 
@@ -560,7 +604,7 @@ export default function App() {
               {submitting ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  Sending to Counter...
+                  <span>{uploadStatus || 'Sending to Counter...'}</span>
                 </>
               ) : (
                 <>

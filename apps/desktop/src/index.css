@@ -34,3 +34,42 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #57534e;
 }
+
+/* Dedicated Clean Print Media Styling */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide entire application shell: sidebar, headers, navigation, buttons, modally opened editors */
+  aside,
+  nav,
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Make main print poster full width with no background */
+  main {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+
+  .print-poster-card {
+    box-shadow: none !important;
+    border: 2px solid #000000 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 24px !important;
+    margin: 0 auto !important;
+    page-break-inside: avoid !important;
+  }
+}
