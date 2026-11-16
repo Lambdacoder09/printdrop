@@ -401,7 +401,7 @@ export default function DesktopApp() {
       const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
       const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
       if (snap.empty) {
-        alert(`File content for "${d.originalName}" was not attached to this order (order was created before live upload sync). Ask the customer to re-upload.`);
+        // Document has no uploaded chunks attached (e.g. sample demo job or created prior to file upload sync)
         return null;
       }
       let fullDataUrl = '';
@@ -414,7 +414,7 @@ export default function DesktopApp() {
       setDocUrls((prev) => ({ ...prev, [d.id]: blobUrl }));
       return blobUrl;
     } catch (err: any) {
-      alert('Failed to load document: ' + err.message);
+      console.warn('Document loading notice:', err.message);
       return null;
     } finally {
       setLoadingDocId(null);
@@ -422,6 +422,18 @@ export default function DesktopApp() {
   };
 
   const handleViewDocument = async (d: JobDocument) => {
+    const lower = d.originalName.toLowerCase();
+    // If it's a Word or text file, open it directly in the in-browser Word clone editor
+    if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) {
+      setEditingDoc(d);
+      return;
+    }
+    // If it's a spreadsheet, open it directly in the in-browser Excel clone editor
+    if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv')) {
+      setEditingSheet(d);
+      return;
+    }
+
     setViewingPdfDoc(d);
     await getDocUrl(d);
   };
