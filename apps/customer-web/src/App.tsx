@@ -517,7 +517,7 @@ export default function App() {
                       </div>
 
                       {/* Options per file */}
-                      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-stone-200">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-stone-200">
                         <div>
                           <label className="block text-[10px] text-stone-500 mb-0.5 font-medium">Color</label>
                           <select
@@ -555,6 +555,19 @@ export default function App() {
                             value={item.copies}
                             onChange={(e) =>
                               updateFileOption(idx, 'copies', Math.max(1, parseInt(e.target.value) || 1))
+                            }
+                            className="w-full text-xs p-1.5 rounded border border-stone-300 bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] text-stone-500 mb-0.5 font-medium">Pages</label>
+                          <input
+                            type="text"
+                            placeholder="All (e.g. 1-5, 8)"
+                            value={item.pageRange || ''}
+                            onChange={(e) =>
+                              updateFileOption(idx, 'pageRange', e.target.value)
                             }
                             className="w-full text-xs p-1.5 rounded border border-stone-300 bg-white"
                           />
@@ -790,7 +803,7 @@ export default function App() {
                         <span className="font-medium text-stone-800 truncate">{doc.originalName}</span>
                       </div>
                       <span className="text-stone-500 shrink-0 ml-2">
-                        {doc.colorMode === 'COLOR' ? 'Color' : 'B&W'} • {doc.copies} copy
+                        {doc.colorMode === 'COLOR' ? 'Color' : 'B&W'} • {doc.copies} copy{doc.pageRange && doc.pageRange.toLowerCase() !== 'all' ? ` • p. ${doc.pageRange}` : ''}
                       </span>
                     </div>
                     {doc.note && (
