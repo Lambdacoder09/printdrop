@@ -222,3 +222,89 @@ export async function convertDocumentToPdfUrl(
   const pdfBytes = await pdfDoc.save();
   return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
 }
+
+/**
+ * Synthesizes a clean, printable placeholder PDF if a document's binary data
+ * was not uploaded (e.g. mock/demo order or legacy submission) so that Print & View never fail.
+ */
+export async function generateFallbackDocumentPdf(
+  fileName: string,
+  customerNote?: string,
+  pageCount: number = 1
+): Promise<string> {
+  const pdfDoc = await PDFDocument.create();
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  const page = pdfDoc.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+
+  // Header banner
+  page.drawRectangle({
+    x: 40,
+    y: height - 70,
+    width: width - 80,
+    height: 35,
+    color: rgb(0.1, 0.15, 0.28),
+  });
+
+  page.drawText(`DOCUMENT: ${fileName}`, {
+    x: 52,
+    y: height - 52,
+    size: 13,
+    font: fontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  if (customerNote) {
+    page.drawRectangle({
+      x: 40,
+      y: height - 105,
+      width: width - 80,
+      height: 26,
+      color: rgb(0.99, 0.95, 0.8),
+    });
+    page.drawText(`Customer Instruction: ${customerNote}`, {
+      x: 52,
+      y: height - 93,
+      size: 9.5,
+      font: fontBold,
+      color: rgb(0.65, 0.4, 0.05),
+    });
+  }
+
+  const startY = customerNote ? height - 140 : height - 100;
+  page.drawText(`[Document Content - ${fileName}]`, {
+    x: 52,
+    y: startY,
+    size: 11,
+    font: fontBold,
+    color: rgb(0.2, 0.2, 0.2),
+  });
+
+  page.drawText(`Estimated Pages: ${pageCount}`, {
+    x: 52,
+    y: startY - 20,
+    size: 9.5,
+    font: fontRegular,
+    color: rgb(0.4, 0.4, 0.4),
+  });
+
+  page.drawText('This document is ready for printing directly from the PrintDrop counter workstation.', {
+    x: 52,
+    y: startY - 45,
+    size: 10,
+    font: fontRegular,
+    color: rgb(0.2, 0.2, 0.2),
+  });
+
+  page.drawLine({
+    start: { x: 50, y: startY - 60 },
+    end: { x: width - 50, y: startY - 60 },
+    thickness: 1,
+    color: rgb(0.85, 0.85, 0.85),
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
+}

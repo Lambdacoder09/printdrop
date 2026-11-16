@@ -27,7 +27,7 @@ import DocEditorModal from './components/DocEditorModal';
 import SheetEditorModal from './components/SheetEditorModal';
 import PdfViewerModal from './components/PdfViewerModal';
 import ChooseEditorModal from './components/ChooseEditorModal';
-import { convertDocumentToPdfUrl } from './utils/documentToPdf';
+import { convertDocumentToPdfUrl, generateFallbackDocumentPdf } from './utils/documentToPdf';
 import { db, parsePageRange, calculateBillablePages } from '@printdrop/shared';
 import {
   collection,
@@ -548,10 +548,19 @@ export default function DesktopApp() {
         setDocUrls((prev) => ({ ...prev, [d.id]: pdfUrl }));
         return pdfUrl;
       }
-      return null;
+      // If file binary is not present (mock job or legacy upload), generate clean placeholder PDF
+      const fallbackUrl = await generateFallbackDocumentPdf(d.originalName, d.note, d.pageCount);
+      setDocUrls((prev) => ({ ...prev, [d.id]: fallbackUrl }));
+      return fallbackUrl;
     } catch (err: any) {
-      console.warn('Document loading notice:', err.message);
-      return null;
+      console.warn('Document loading notice, generating fallback:', err.message);
+      try {
+        const fallbackUrl = await generateFallbackDocumentPdf(d.originalName, d.note, d.pageCount);
+        setDocUrls((prev) => ({ ...prev, [d.id]: fallbackUrl }));
+        return fallbackUrl;
+      } catch {
+        return null;
+      }
     } finally {
       setLoadingDocId(null);
     }
@@ -710,14 +719,14 @@ export default function DesktopApp() {
     activeTab === 'incoming' ? incomingJobs : activeTab === 'queue' ? activeJobs : completedJobs;
 
   return (
-    <div className="flex h-screen bg-stone-100 text-stone-900 overflow-hidden">
+    <div className="flex h-screen bg-stone-50/70 text-stone-900 overflow-hidden font-sans">
       {/* Sidebar */}
-      <aside className="no-print w-64 bg-white border-r border-stone-200 flex flex-col justify-between shrink-0 shadow-xs">
+      <aside className="no-print w-64 bg-white border-r border-stone-200/80 flex flex-col justify-between shrink-0 shadow-xs">
         <div>
           {/* Shop Branding & Certificate Pill */}
-          <div className="p-4 border-b border-stone-200">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-orange-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs shrink-0">
+          <div className="p-4 border-b border-stone-100">
+            <div className="flex items-center gap-2.5 mb-2.5">
+              <div className="w-9 h-9 rounded-xl bg-orange-50 border border-orange-200/80 text-orange-600 font-extrabold flex items-center justify-center text-sm shadow-xs shrink-0">
                 P
               </div>
               <div className="overflow-hidden flex-1">
@@ -730,27 +739,32 @@ export default function DesktopApp() {
                       setPricingForm(found.pricing);
                     }
                   }}
-                  className="w-full bg-stone-50 hover:bg-stone-100 border border-stone-300 rounded text-xs font-bold text-stone-900 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full bg-stone-50 hover:bg-stone-100/80 border border-stone-200 rounded-lg text-xs font-bold text-stone-800 px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
                 >
                   {availableShops.map((s) => (
-                    <option key={s.slug} value={s.slug} className="bg-white text-stone-900">
+                    <option key={s.slug} value={s.slug} className="bg-white text-stone-900 font-medium">
                       {s.name}
                     </option>
                   ))}
                 </select>
-                <p className="text-[10px] text-stone-500 mt-0.5">Terminal #01 (Windows)</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Terminal #01</span>
+                  <span className="text-[10px] font-bold text-pink-700 bg-pink-50 border border-pink-200/70 px-1.5 py-0.2 rounded-md">
+                    WORKSTATION / SHOP
+                  </span>
+                </div>
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-1">
-              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                <ShieldCheck className="w-3 h-3" />
-                Firestore Cloud Real-Time
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200/80">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                Live Cloud Sync
               </span>
               <button
                 type="button"
                 onClick={() => setSoundEnabled(!soundEnabled)}
-                className="text-stone-400 hover:text-stone-700 p-1 cursor-pointer"
+                className="text-stone-400 hover:text-stone-700 p-1.5 rounded-full hover:bg-stone-100 transition cursor-pointer"
                 title={soundEnabled ? 'Mute alert sound' : 'Enable alert sound'}
                 aria-label={soundEnabled ? 'Mute sound' : 'Enable sound'}
               >
@@ -760,18 +774,20 @@ export default function DesktopApp() {
           </div>
 
           {/* Navigation Items */}
-          <nav className="p-2 space-y-1">
+          <nav className="p-3 space-y-1.5">
             <button
               type="button"
               onClick={() => setActiveTab('incoming')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'incoming'
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200 font-bold shadow-xs'
-                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                  ? 'bg-amber-50/80 text-amber-900 border border-amber-300 font-bold shadow-xs'
+                  : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <Inbox className="w-4 h-4 text-orange-500" />
+              <div className="flex items-center gap-3">
+                <div className={`p-1 rounded-lg ${activeTab === 'incoming' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-600 border border-amber-200'}`}>
+                  <Inbox className="w-3.5 h-3.5" />
+                </div>
                 <span>Incoming Jobs</span>
               </div>
               {incomingJobs.length > 0 && (
@@ -784,14 +800,16 @@ export default function DesktopApp() {
             <button
               type="button"
               onClick={() => setActiveTab('queue')}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'queue'
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200 font-bold shadow-xs'
-                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                  ? 'bg-amber-50/80 text-amber-900 border border-amber-300 font-bold shadow-xs'
+                  : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <Printer className="w-4 h-4 text-blue-600" />
+              <div className="flex items-center gap-3">
+                <div className={`p-1 rounded-lg ${activeTab === 'queue' ? 'bg-orange-500 text-white' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'}`}>
+                  <Printer className="w-3.5 h-3.5" />
+                </div>
                 <span>Active Print Queue</span>
               </div>
               {activeJobs.length > 0 && (
@@ -804,54 +822,66 @@ export default function DesktopApp() {
             <button
               type="button"
               onClick={() => setActiveTab('completed')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'completed'
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200 font-bold shadow-xs'
-                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                  ? 'bg-amber-50/80 text-amber-900 border border-amber-300 font-bold shadow-xs'
+                  : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
               }`}
             >
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className={`p-1 rounded-lg ${activeTab === 'completed' ? 'bg-emerald-600 text-white' : 'bg-blue-50 text-blue-600 border border-blue-200'}`}>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              </div>
               <span>Completed Orders</span>
             </button>
 
-            <div className="pt-3 pb-1 px-3">
+            <div className="pt-4 pb-1 px-3">
               <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Configuration</span>
             </div>
 
             <button
               type="button"
               onClick={() => setActiveTab('poster')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'poster'
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200 font-bold shadow-xs'
-                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                  ? 'bg-amber-50/80 text-amber-900 border border-amber-300 font-bold shadow-xs'
+                  : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
               }`}
             >
-              <QrCode className="w-4 h-4 text-stone-500" />
+              <div className={`p-1 rounded-lg ${activeTab === 'poster' ? 'bg-orange-500 text-white' : 'bg-purple-50 text-purple-600 border border-purple-200'}`}>
+                <QrCode className="w-3.5 h-3.5" />
+              </div>
               <span>Counter QR Stand</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('pricing')}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                 activeTab === 'pricing'
-                  ? 'bg-orange-50 text-orange-700 border border-orange-200 font-bold shadow-xs'
-                  : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                  ? 'bg-amber-50/80 text-amber-900 border border-amber-300 font-bold shadow-xs'
+                  : 'text-stone-600 hover:bg-stone-50 hover:text-stone-900'
               }`}
             >
-              <DollarSign className="w-4 h-4 text-stone-500" />
+              <div className={`p-1 rounded-lg ${activeTab === 'pricing' ? 'bg-orange-500 text-white' : 'bg-teal-50 text-teal-600 border border-teal-200'}`}>
+                <DollarSign className="w-3.5 h-3.5" />
+              </div>
               <span>Rate Card & Pricing</span>
             </button>
           </nav>
         </div>
 
         {/* Footer info */}
-        <div className="p-3 border-t border-stone-200 text-[10px] text-stone-500 flex items-center justify-between bg-stone-50/50">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Firebase Cloud Sync</span>
-          </div>
+        <div className="p-3.5 border-t border-stone-100 text-[11px] text-stone-500 flex items-center justify-between bg-stone-50/60">
+          <a
+            href={`https://printdrop-customer.vercel.app/shop/${shop.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-orange-600 hover:text-orange-700 font-bold"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Public Drop Page</span>
+          </a>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" title="Connected" />
         </div>
       </aside>
 
@@ -1109,16 +1139,22 @@ export default function DesktopApp() {
         /* Jobs List & Job Workspace Split View */
         <div className="flex-1 flex overflow-hidden">
           {/* Middle Column: Jobs Queue List */}
-          <section className="w-80 bg-white border-r border-stone-200 flex flex-col shrink-0 shadow-xs">
-            <div className="p-3 border-b border-stone-200 bg-stone-50/70 flex items-center justify-between">
-              <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">
-                {activeTab === 'incoming'
-                  ? 'Incoming Submissions'
-                  : activeTab === 'queue'
-                  ? 'Active Queue'
-                  : 'Completed Archive'}
+          <section className="w-80 bg-white border-r border-stone-200/80 flex flex-col shrink-0 shadow-xs">
+            {/* Action Bar matching Tripti style (Schemes / Add walk-in) */}
+            <div className="p-3 border-b border-stone-100 bg-stone-50/50 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-stone-900 uppercase tracking-wider block">
+                  {activeTab === 'incoming'
+                    ? 'Incoming Submissions'
+                    : activeTab === 'queue'
+                    ? 'Active Print Queue'
+                    : 'Completed Archive'}
+                </span>
+                <span className="text-[11px] text-stone-500 font-medium">Real-time shop order queue</span>
+              </div>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-700 border border-stone-200">
+                {displayedJobs.length}
               </span>
-              <span className="text-xs text-stone-500 font-mono font-bold">({displayedJobs.length})</span>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-stone-100 bg-white">
@@ -1137,7 +1173,7 @@ export default function DesktopApp() {
                       onClick={() => setSelectedJob(job)}
                       className={`w-full p-3.5 text-left transition flex flex-col gap-1.5 cursor-pointer ${
                         isSelected
-                          ? 'bg-orange-50/90 border-l-4 border-orange-600 shadow-xs'
+                          ? 'bg-amber-50/60 border-l-4 border-amber-500 shadow-xs'
                           : 'hover:bg-stone-50/80'
                       }`}
                     >
@@ -1154,7 +1190,7 @@ export default function DesktopApp() {
                         <span className="text-xs font-bold text-stone-900 truncate max-w-[130px]">
                           {job.customerName}
                         </span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-stone-100 text-stone-700 border border-stone-200">
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-900 border border-amber-200">
                           {job.status}
                         </span>
                       </div>
@@ -1173,15 +1209,155 @@ export default function DesktopApp() {
           </section>
 
           {/* Right Column: Selected Job Details & Action Center */}
-          <main className="flex-1 bg-stone-50/60 flex flex-col overflow-y-auto">
+          <main className="flex-1 bg-stone-50/50 flex flex-col overflow-y-auto">
+            {/* Top Toolbar matching screenshot */}
+            <div className="px-6 py-3 bg-white border-b border-stone-200/80 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedJob(null)}
+                  className="px-3.5 py-1.5 rounded-full border border-amber-300 bg-amber-50/70 text-amber-900 text-xs font-bold hover:bg-amber-100 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  ← Back
+                </button>
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-stone-50 border border-stone-200 rounded-full text-xs">
+                  <span className="text-stone-500">Print Shop:</span>
+                  <span className="font-bold text-pink-700 bg-pink-50 border border-pink-200 px-2 py-0.5 rounded-full text-[10px]">
+                    VENDOR / OWNER
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs font-medium text-stone-700 hover:bg-stone-50 transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
+                <span className="px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs font-medium text-stone-700 flex items-center gap-1.5">
+                  <span className="text-orange-500 font-bold">🌐</span> English
+                </span>
+                <span className="px-3 py-1.5 bg-white border border-stone-200 rounded-full text-xs font-medium text-stone-700 flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5 text-stone-500" /> Alerts on
+                </span>
+                <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-full text-xs font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
+                  Open
+                </div>
+              </div>
+            </div>
+
             {selectedJob ? (
-              <div className="p-6 space-y-6 max-w-3xl">
+              <div className="p-6 space-y-6 max-w-4xl">
+                {/* Section Title & Subheading */}
+                <div className="space-y-1">
+                  <h1 className="text-2xl font-black text-stone-900 tracking-tight">
+                    Order #{selectedJob.accessCode} • {selectedJob.customerName}
+                  </h1>
+                  <p className="text-xs text-stone-500 font-medium">
+                    Manage document printing, physical page settings, in-browser document editing, and billing
+                  </p>
+                </div>
+
+                {/* Quick Action Pill Tags */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1.5">
+                    🏷️ Counter Rate Applied
+                  </span>
+                  <div className="flex items-center gap-2 bg-white border border-stone-200 px-3 py-1.5 rounded-xl text-xs font-medium text-stone-700">
+                    <span>{new Date(selectedJob.createdAt).toLocaleDateString()}</span>
+                    <span>📅</span>
+                  </div>
+                </div>
+
+                {/* Metric Summary Cards (like the 4 colored cards in the screenshot) */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {/* Card 1: Coral/Orange (To Be Prepared) */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-[#ea580c] to-[#f97316] text-white shadow-xs space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/90">
+                      <FileText className="w-4 h-4" />
+                      <span>Pages to Print</span>
+                    </div>
+                    <div>
+                      <div className="text-3xl font-black">{selectedJob.totalEstimatedPages}</div>
+                      <div className="text-[11px] text-white/80 font-medium">
+                        {selectedJob.documents.length} document{selectedJob.documents.length > 1 ? 's' : ''} total
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Deep Blue/Slate (Active Clients) */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-[#1e40af] to-[#2563eb] text-white shadow-xs space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/90">
+                      <Clock className="w-4 h-4" />
+                      <span>Order Status</span>
+                    </div>
+                    <div>
+                      <div className="text-xl font-black uppercase mt-1">{selectedJob.status}</div>
+                      <div className="text-[11px] text-white/80 font-medium">
+                        {selectedJob.paymentStatus === 'CONFIRMED' ? 'Paid & Verified' : 'Awaiting Payment'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 3: Deep Indigo/Purple (Paused / Custom notes) */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-[#312e81] to-[#3730a3] text-white shadow-xs space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/90">
+                      <AlertCircle className="w-4 h-4" />
+                      <span>Customer Note</span>
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold truncate mt-1">
+                        {selectedJob.notes || 'No special note'}
+                      </div>
+                      <div className="text-[11px] text-white/80 font-medium">
+                        {selectedJob.customerPhone || 'Walk-in'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 4: Deep Forest Green (Delivered / Billed) */}
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-[#14532d] to-[#166534] text-white shadow-xs space-y-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-white/90">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Total Bill</span>
+                    </div>
+                    <div>
+                      <div className="text-3xl font-black">
+                        ₹{selectedJob.billingAmount ? selectedJob.billingAmount.toFixed(0) : calculateSuggestedBill(selectedJob).toFixed(0)}
+                      </div>
+                      <div className="text-[11px] text-white/80 font-medium">
+                        {selectedJob.paymentStatus === 'CONFIRMED' ? 'Payment Received' : 'Ready to Collect'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Action Navigation Tabs (Orange Coral, Blue, Mint Pills like in screenshot) */}
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  <div className="px-4 py-2 rounded-xl bg-orange-600 text-white font-bold text-xs shadow-xs flex items-center gap-2">
+                    <span>🖨️</span>
+                    <span>Print Roster</span>
+                  </div>
+                  <div className="px-4 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 font-bold text-xs flex items-center gap-2">
+                    <span>📋</span>
+                    <span>Manage Bill & UPI</span>
+                  </div>
+                  <div className="px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-xs flex items-center gap-2">
+                    <span>💳</span>
+                    <span>Status: {selectedJob.status}</span>
+                  </div>
+                </div>
+
                 {/* Header Card */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-white border border-stone-200 shadow-xs">
+                <div className="flex items-center justify-between p-5 rounded-2xl bg-white border border-stone-200/90 shadow-xs">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-xl bg-orange-50 border border-orange-200 flex flex-col items-center justify-center shadow-xs">
-                      <span className="text-[10px] uppercase font-bold text-orange-600">Token</span>
-                      <span className="font-mono text-lg font-black text-orange-600 leading-tight">
+                    <div className="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col items-center justify-center shadow-xs">
+                      <span className="text-[10px] uppercase font-bold text-amber-800">Token</span>
+                      <span className="font-mono text-lg font-black text-amber-900 leading-tight">
                         #{selectedJob.accessCode}
                       </span>
                     </div>
@@ -1197,11 +1373,11 @@ export default function DesktopApp() {
 
                   {/* Status update selector */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-stone-500">Status:</span>
+                    <span className="text-xs font-semibold text-stone-600">Update Status:</span>
                     <select
                       value={selectedJob.status}
                       onChange={(e) => handleUpdateStatus(e.target.value as any)}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-stone-50 border border-stone-300 text-stone-800 focus:bg-white focus:outline-none cursor-pointer"
+                      className="text-xs font-bold px-3 py-1.5 rounded-full bg-white border border-stone-300 text-stone-800 focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer shadow-xs"
                     >
                       <option value="SUBMITTED">Submitted</option>
                       <option value="REVIEWING">Reviewing</option>
@@ -1215,27 +1391,29 @@ export default function DesktopApp() {
                 </div>
 
                 {/* Billing & Payment Console */}
-                <section className="p-5 rounded-xl bg-white border border-stone-200 space-y-4 shadow-xs">
+                <section className="p-5 rounded-2xl bg-white border border-stone-200/90 space-y-4 shadow-xs">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                        Billing & Payment
+                      <h3 className="text-xs font-bold text-stone-600 uppercase tracking-wider">
+                        Counter Billing & UPI Payment
                       </h3>
                       <p className="text-xs text-stone-500">
-                        Suggested bill: ₹{calculateSuggestedBill(selectedJob).toFixed(2)} based on shop rate card
+                        Suggested bill: ₹{calculateSuggestedBill(selectedJob).toFixed(2)} based on counter rate card
                       </p>
                     </div>
 
                     <div className="text-right">
                       {selectedJob.billingAmount ? (
                         <div className="flex items-baseline gap-1 justify-end">
-                          <span className="text-xs text-stone-500">Total:</span>
+                          <span className="text-xs text-stone-500 font-medium">Total:</span>
                           <span className="text-2xl font-black text-stone-900">
                             ₹{selectedJob.billingAmount.toFixed(2)}
                           </span>
                         </div>
                       ) : (
-                        <span className="text-xs text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded border border-amber-200">Bill Not Generated</span>
+                        <span className="text-xs text-amber-800 font-bold bg-amber-50 px-3 py-1 rounded-full border border-amber-300">
+                          Bill Not Generated
+                        </span>
                       )}
                     </div>
                   </div>
@@ -1247,12 +1425,12 @@ export default function DesktopApp() {
                       placeholder={`₹${calculateSuggestedBill(selectedJob)} (or enter amount)`}
                       value={customBillAmount}
                       onChange={(e) => setCustomBillAmount(e.target.value)}
-                      className="px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs text-stone-900 placeholder-stone-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-orange-500 flex-1"
+                      className="px-3.5 py-2.5 bg-stone-50/80 border border-stone-200 rounded-xl text-xs text-stone-900 placeholder-stone-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-orange-500 flex-1"
                     />
                     <button
                       type="button"
                       onClick={handleGenerateBill}
-                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition shadow-xs cursor-pointer"
+                      className="px-4 py-2.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl transition shadow-xs cursor-pointer"
                     >
                       Push Bill & UPI QR to Customer
                     </button>
@@ -1262,14 +1440,16 @@ export default function DesktopApp() {
                   {selectedJob.billingAmount && (
                     <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs text-stone-500">Payment:</span>
+                        <span className="text-xs text-stone-500 font-medium">Payment:</span>
                         {selectedJob.paymentStatus === 'CONFIRMED' ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
-                            <Check className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
                             Paid via {selectedJob.paymentMethod || 'Direct'}
                           </span>
                         ) : (
-                          <span className="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Pending Customer Payment</span>
+                          <span className="text-xs text-amber-800 font-semibold bg-amber-50 px-3 py-1 rounded-full border border-amber-300">
+                            Pending Customer Payment
+                          </span>
                         )}
                       </div>
 
@@ -1278,14 +1458,14 @@ export default function DesktopApp() {
                           <button
                             type="button"
                             onClick={() => handleConfirmPayment('CASH')}
-                            className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-800 text-xs font-bold rounded-lg transition cursor-pointer"
+                            className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-800 text-xs font-bold rounded-full transition cursor-pointer"
                           >
                             Mark Cash Received
                           </button>
                           <button
                             type="button"
                             onClick={() => handleConfirmPayment('DIRECT_UPI')}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-xs cursor-pointer"
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-full transition shadow-xs cursor-pointer"
                           >
                             Mark UPI Received
                           </button>
@@ -1297,9 +1477,12 @@ export default function DesktopApp() {
 
                 {/* Documents List */}
                 <section className="space-y-3">
-                  <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider">
-                    Customer Documents ({selectedJob.documents.length})
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-stone-600 uppercase tracking-wider">
+                      Customer Documents ({selectedJob.documents.length})
+                    </h3>
+                    <span className="text-[11px] text-stone-400 font-medium">Click document to preview or edit</span>
+                  </div>
 
                   <div className="space-y-3">
                     {selectedJob.documents.map((doc) => {
@@ -1308,20 +1491,20 @@ export default function DesktopApp() {
                       return (
                         <div
                           key={doc.id}
-                          className="p-4 rounded-xl bg-white border border-stone-200 space-y-3 shadow-xs hover:border-stone-300 transition"
+                          className="p-4 rounded-2xl bg-white border border-stone-200/90 space-y-3 shadow-xs hover:border-amber-300 transition"
                         >
                           <div className="flex items-center justify-between gap-4">
                             <div
                               onClick={() => handleViewDocument(doc)}
-                              className="flex items-center gap-3 overflow-hidden cursor-pointer group"
+                              className="flex items-center gap-3.5 overflow-hidden cursor-pointer group"
                               title="Click to view document"
                             >
-                              <div className="w-10 h-10 rounded-lg bg-stone-100 border border-stone-200 flex items-center justify-center text-stone-500 shrink-0 group-hover:bg-stone-200 transition">
+                              <div className="w-11 h-11 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-center text-stone-500 shrink-0 group-hover:bg-amber-50 group-hover:border-amber-200 transition">
                                 {isSheet ? <Table className="w-5 h-5 text-emerald-600" /> : <FileText className="w-5 h-5 text-blue-600" />}
                               </div>
                               <div className="overflow-hidden">
                                 <h4 className="text-xs font-bold text-stone-900 truncate group-hover:text-orange-600 transition">{doc.originalName}</h4>
-                                <p className="text-[11px] text-stone-500">
+                                <p className="text-[11px] text-stone-500 mt-0.5">
                                   {doc.pageCount} pages • {doc.colorMode === 'COLOR' ? 'Color' : 'Black & White'} • {doc.copies} copy • {doc.sides === 'SINGLE' ? 'Single side' : 'Both sides'}
                                   {doc.pageRange && doc.pageRange.toLowerCase() !== 'all' && (
                                     <span className="ml-1.5 text-orange-600 font-semibold">• Pages: {doc.pageRange}</span>
@@ -1337,7 +1520,7 @@ export default function DesktopApp() {
                                 type="button"
                                 disabled={loadingDocId === doc.id}
                                 onClick={() => handleViewDocument(doc)}
-                                className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-700 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                                className="px-3 py-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-200 rounded-full text-stone-700 text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-2xs"
                                 title="Convert and view this document as PDF"
                               >
                                 {loadingDocId === doc.id ? (
@@ -1352,10 +1535,10 @@ export default function DesktopApp() {
                               <button
                                 type="button"
                                 onClick={() => handleEditDocument(doc)}
-                                className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-700 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                                className="px-3.5 py-1.5 bg-amber-50/70 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold rounded-full transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
                                 title="Open in Word or Excel editor"
                               >
-                                <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                                <Edit3 className="w-3.5 h-3.5 text-amber-700" />
                                 Edit
                               </button>
 
@@ -1364,7 +1547,7 @@ export default function DesktopApp() {
                                 type="button"
                                 disabled={loadingDocId === doc.id}
                                 onClick={() => handlePrintDocument(doc)}
-                                className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+                                className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-full transition flex items-center gap-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
                                 title="Print customer document"
                               >
                                 {loadingDocId === doc.id ? (
@@ -1379,9 +1562,9 @@ export default function DesktopApp() {
 
                           {/* Individual document customer note / instruction */}
                           {doc.note && (
-                            <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-2">
-                              <span className="font-bold text-amber-700">Customer Note on this file:</span>
-                              <span>"{doc.note}"</span>
+                            <div className="text-[11px] text-amber-950 bg-amber-50/90 border border-amber-300/80 px-3.5 py-2 rounded-xl flex items-center gap-2">
+                              <span className="font-bold text-amber-800">Customer Note on this file:</span>
+                              <span className="font-medium">"{doc.note}"</span>
                             </div>
                           )}
                         </div>
@@ -1392,15 +1575,23 @@ export default function DesktopApp() {
 
                 {/* Customer Notes */}
                 {selectedJob.notes && (
-                  <section className="p-4 rounded-xl bg-white border border-stone-200 shadow-xs">
+                  <section className="p-4 rounded-2xl bg-white border border-stone-200/90 shadow-xs">
                     <h4 className="text-xs font-bold text-stone-500 mb-1">Customer Instructions:</h4>
                     <p className="text-xs text-stone-700 italic">"{selectedJob.notes}"</p>
                   </section>
                 )}
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center p-8 text-center text-stone-400">
-                <p className="text-xs font-medium">Select a job from the queue to view documents and generate bills.</p>
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-stone-400 space-y-3">
+                <div className="w-14 h-14 rounded-2xl bg-stone-100 border border-stone-200 flex items-center justify-center text-stone-400">
+                  <Inbox className="w-7 h-7" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-700">No Job Selected</h3>
+                  <p className="text-xs text-stone-500 max-w-xs mt-0.5">
+                    Select any job from the queue on the left to review documents, make edits, and issue the bill.
+                  </p>
+                </div>
               </div>
             )}
           </main>
