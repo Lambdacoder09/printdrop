@@ -205,27 +205,27 @@ export default function SheetEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col sheet-editor-modal">
+    <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex flex-col sheet-editor-modal">
       {/* Excel Title Bar - strictly hidden in print */}
-      <div className="no-print print:hidden editor-chrome editor-header h-10 bg-emerald-800 text-white flex items-center justify-between px-4 select-none shrink-0 border-b border-emerald-950">
+      <div className="no-print print:hidden editor-chrome editor-header h-11 bg-white text-stone-900 flex items-center justify-between px-4 select-none shrink-0 border-b border-stone-200 shadow-xs">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-emerald-600 flex items-center justify-center font-bold text-xs">
+          <div className="w-5 h-5 rounded bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
             X
           </div>
-          <span className="text-xs font-semibold">{documentName}</span>
-          <span className="text-[11px] text-emerald-200">- Excel Spreadsheet Editor (Shop Workstation)</span>
+          <span className="text-xs font-bold text-stone-900">{documentName}</span>
+          <span className="text-[11px] text-stone-500">- Excel Spreadsheet Editor (Shop Workstation)</span>
         </div>
 
         <div className="flex items-center gap-2">
           {customerNote && (
-            <span className="text-[11px] bg-amber-400 text-stone-950 px-2 py-0.5 rounded font-bold">
+            <span className="text-[11px] bg-amber-50 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full font-bold">
               Customer Note: {customerNote}
             </span>
           )}
           <button
             type="button"
             onClick={onClose}
-            className="p-1 hover:bg-emerald-700 rounded text-emerald-200 hover:text-white"
+            className="p-1.5 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition cursor-pointer"
             title="Close editor"
           >
             <X className="w-4 h-4" />
@@ -234,7 +234,7 @@ export default function SheetEditorModal({
       </div>
 
       {/* Top Action Bar - strictly hidden in print */}
-      <div className="no-print print:hidden editor-chrome editor-toolbar h-11 bg-stone-100 border-b border-stone-300 px-4 flex items-center justify-between shrink-0 select-none">
+      <div className="no-print print:hidden editor-chrome editor-toolbar h-11 bg-stone-50 border-b border-stone-200 px-4 flex items-center justify-between shrink-0 select-none">
         <div className="flex items-center gap-2 text-xs font-medium text-stone-700">
           <span className="px-2 py-1 bg-emerald-50 text-emerald-800 rounded font-bold text-xs">
             Ready to Edit

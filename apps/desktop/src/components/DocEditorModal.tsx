@@ -228,27 +228,27 @@ export default function DocEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col doc-editor-modal">
+    <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex flex-col doc-editor-modal">
       {/* Top Title Bar - strictly hidden in print */}
-      <div className="no-print print:hidden editor-chrome editor-header h-10 bg-blue-900 text-white flex items-center justify-between px-4 select-none shrink-0 border-b border-blue-950">
+      <div className="no-print print:hidden editor-chrome editor-header h-11 bg-white text-stone-900 flex items-center justify-between px-4 select-none shrink-0 border-b border-stone-200 shadow-xs">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-blue-700 flex items-center justify-center font-bold text-xs">
+          <div className="w-5 h-5 rounded bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
             W
           </div>
-          <span className="text-xs font-semibold">{documentName}</span>
-          <span className="text-[11px] text-blue-200">- Word Document Editor (Shop Workstation)</span>
+          <span className="text-xs font-bold text-stone-900">{documentName}</span>
+          <span className="text-[11px] text-stone-500">- Word Document Editor (Shop Workstation)</span>
         </div>
 
         <div className="flex items-center gap-2">
           {customerNote && (
-            <span className="text-[11px] bg-amber-500 text-stone-950 px-2 py-0.5 rounded font-bold">
+            <span className="text-[11px] bg-amber-50 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full font-bold">
               Customer Note: {customerNote}
             </span>
           )}
           <button
             type="button"
             onClick={onClose}
-            className="p-1 hover:bg-blue-800 rounded text-blue-200 hover:text-white"
+            className="p-1.5 hover:bg-stone-100 rounded-lg text-stone-400 hover:text-stone-700 transition cursor-pointer"
             title="Close editor"
           >
             <X className="w-4 h-4" />
@@ -257,14 +257,14 @@ export default function DocEditorModal({
       </div>
 
       {/* Ribbon Navigation - strictly hidden in print */}
-      <div className="no-print print:hidden editor-chrome editor-ribbon bg-stone-100 border-b border-stone-300 text-stone-800 select-none shrink-0">
-        <div className="flex border-b border-stone-200 px-3 text-xs font-medium">
+      <div className="no-print print:hidden editor-chrome editor-ribbon bg-white border-b border-stone-200 text-stone-800 select-none shrink-0">
+        <div className="flex border-b border-stone-200 px-3 text-xs font-medium bg-stone-50/50">
           <button
             type="button"
             onClick={() => setActiveRibbonTab('home')}
             className={`px-3 py-1.5 border-b-2 transition ${
               activeRibbonTab === 'home'
-                ? 'border-blue-700 text-blue-700 font-bold bg-white'
+                ? 'border-blue-600 text-blue-700 font-bold bg-white'
                 : 'border-transparent text-stone-600 hover:text-stone-900'
             }`}
           >
@@ -275,7 +275,7 @@ export default function DocEditorModal({
             onClick={() => setActiveRibbonTab('insert')}
             className={`px-3 py-1.5 border-b-2 transition ${
               activeRibbonTab === 'insert'
-                ? 'border-blue-700 text-blue-700 font-bold bg-white'
+                ? 'border-blue-600 text-blue-700 font-bold bg-white'
                 : 'border-transparent text-stone-600 hover:text-stone-900'
             }`}
           >
@@ -286,7 +286,7 @@ export default function DocEditorModal({
             onClick={() => setActiveRibbonTab('layout')}
             className={`px-3 py-1.5 border-b-2 transition ${
               activeRibbonTab === 'layout'
-                ? 'border-blue-700 text-blue-700 font-bold bg-white'
+                ? 'border-blue-600 text-blue-700 font-bold bg-white'
                 : 'border-transparent text-stone-600 hover:text-stone-900'
             }`}
           >
