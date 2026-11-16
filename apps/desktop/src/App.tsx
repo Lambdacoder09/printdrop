@@ -104,7 +104,78 @@ const DEFAULT_SHOP: ShopProfile = {
 
 export default function DesktopApp() {
   const [activeTab, setActiveTab] = useState<'incoming' | 'queue' | 'completed' | 'pricing' | 'poster'>('incoming');
-  const [shop, setShop] = useState<ShopProfile>(DEFAULT_SHOP);
+  const [shop, setShop] = useState<ShopProfile>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shopParam = params.get('shop');
+    if (shopParam === 'kishan-printing' || shopParam === 'kishan') {
+      return {
+        id: 'shop-kishan-printing',
+        name: 'Kishan Digital Printing Hub',
+        slug: 'kishan-printing',
+        phone: '+91 91234 56789',
+        upiId: 'kishanprint@okaxis',
+        address: 'Main Market, Opp Civil Hospital, Jaipur, Rajasthan',
+        pricing: {
+          bwPageRate: 2,
+          colorPageRate: 10,
+          photocopyRate: 2,
+          scanningRate: 5,
+          laminationRate: 20,
+        },
+      };
+    }
+    if (shopParam === 'zayed-khan-xerox' || shopParam === 'zayed') {
+      return {
+        id: 'shop-zayed-khan',
+        name: 'ZAYED KHAN XEROX',
+        slug: 'zayed-khan-xerox',
+        phone: '7017853730',
+        upiId: '7017853730@paytm',
+        address: 'Shop 4, Near Metro Gate 2, Delhi',
+        pricing: {
+          bwPageRate: 2,
+          colorPageRate: 10,
+          photocopyRate: 2,
+          scanningRate: 5,
+          laminationRate: 20,
+        },
+      };
+    }
+    return DEFAULT_SHOP;
+  });
+  const [availableShops, setAvailableShops] = useState<ShopProfile[]>([
+    DEFAULT_SHOP,
+    {
+      id: 'shop-zayed-khan',
+      name: 'ZAYED KHAN XEROX',
+      slug: 'zayed-khan-xerox',
+      phone: '7017853730',
+      upiId: '7017853730@paytm',
+      address: 'Shop 4, Near Metro Gate 2, Delhi',
+      pricing: {
+        bwPageRate: 2,
+        colorPageRate: 10,
+        photocopyRate: 2,
+        scanningRate: 5,
+        laminationRate: 20,
+      },
+    },
+    {
+      id: 'shop-kishan-printing',
+      name: 'Kishan Digital Printing Hub',
+      slug: 'kishan-printing',
+      phone: '+91 91234 56789',
+      upiId: 'kishanprint@okaxis',
+      address: 'Main Market, Opp Civil Hospital, Jaipur, Rajasthan',
+      pricing: {
+        bwPageRate: 2,
+        colorPageRate: 10,
+        photocopyRate: 2,
+        scanningRate: 5,
+        laminationRate: 20,
+      },
+    },
+  ]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -142,6 +213,45 @@ export default function DesktopApp() {
       // Audio not permitted or unavailable
     }
   };
+
+  // Real-time Firestore sync for Shops list
+  useEffect(() => {
+    try {
+      const q = query(collection(db, 'shops'));
+      const unsub = onSnapshot(q, (snapshot) => {
+        const loaded: ShopProfile[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data() as any;
+          loaded.push({
+            id: d.id,
+            name: data.name || 'Print Shop',
+            slug: data.slug || d.id,
+            phone: data.phone || '',
+            upiId: data.upiId || '',
+            address: data.address || '',
+            pricing: data.pricing || DEFAULT_SHOP.pricing,
+          });
+        });
+        if (loaded.length > 0) {
+          setAvailableShops((prev) => {
+            const merged = [...prev];
+            loaded.forEach((sh) => {
+              const existingIdx = merged.findIndex((m) => m.slug === sh.slug);
+              if (existingIdx !== -1) {
+                merged[existingIdx] = sh;
+              } else {
+                merged.push(sh);
+              }
+            });
+            return merged;
+          });
+        }
+      });
+      return () => unsub();
+    } catch {
+      // offline fallback
+    }
+  }, []);
 
   // Real-time Firestore sync for Jobs
   useEffect(() => {
@@ -263,9 +373,10 @@ export default function DesktopApp() {
     alert('Pricing settings saved successfully!');
   };
 
-  const incomingJobs = jobs.filter((j) => j.status === 'SUBMITTED' || j.status === 'REVIEWING');
-  const activeJobs = jobs.filter((j) => j.status === 'BILLED' || j.status === 'PAID' || j.status === 'PRINTING' || j.status === 'READY');
-  const completedJobs = jobs.filter((j) => j.status === 'COMPLETED');
+  const shopJobs = jobs.filter((j) => !j.shopSlug || j.shopSlug === shop.slug || j.shopId === shop.id);
+  const incomingJobs = shopJobs.filter((j) => j.status === 'SUBMITTED' || j.status === 'REVIEWING');
+  const activeJobs = shopJobs.filter((j) => j.status === 'BILLED' || j.status === 'PAID' || j.status === 'PRINTING' || j.status === 'READY');
+  const completedJobs = shopJobs.filter((j) => j.status === 'COMPLETED');
 
   const displayedJobs =
     activeTab === 'incoming' ? incomingJobs : activeTab === 'queue' ? activeJobs : completedJobs;
@@ -278,12 +389,28 @@ export default function DesktopApp() {
           {/* Shop Branding & Certificate Pill */}
           <div className="p-4 border-b border-stone-800">
             <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-orange-600 text-white font-extrabold flex items-center justify-center text-sm shadow-inner">
+              <div className="w-8 h-8 rounded-lg bg-orange-600 text-white font-extrabold flex items-center justify-center text-sm shadow-inner shrink-0">
                 P
               </div>
-              <div className="overflow-hidden">
-                <h1 className="text-sm font-bold text-white truncate">{shop.name}</h1>
-                <p className="text-[11px] text-stone-400">Terminal #01 (Windows)</p>
+              <div className="overflow-hidden flex-1">
+                <select
+                  value={shop.slug}
+                  onChange={(e) => {
+                    const found = availableShops.find((s) => s.slug === e.target.value);
+                    if (found) {
+                      setShop(found);
+                      setPricingForm(found.pricing);
+                    }
+                  }}
+                  className="w-full bg-stone-850 hover:bg-stone-800 border border-stone-700 rounded text-xs font-bold text-white px-1.5 py-1 focus:outline-none cursor-pointer"
+                >
+                  {availableShops.map((s) => (
+                    <option key={s.slug} value={s.slug} className="bg-stone-900 text-white">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-stone-400 mt-0.5">Terminal #01 (Windows)</p>
               </div>
             </div>
 

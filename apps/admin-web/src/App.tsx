@@ -150,13 +150,11 @@ export default function AdminApp() {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '');
 
-      const newShopData = {
+      const newShopData: Record<string, any> = {
         name: formName.trim(),
         slug: generatedSlug,
         ownerName: formOwner.trim(),
         phone: formPhone.trim(),
-        upiId: formUpi.trim() || undefined,
-        address: formAddress.trim() || undefined,
         status: 'ACTIVE' as const,
         pricing: {
           bwPageRate: 2,
@@ -165,11 +163,18 @@ export default function AdminApp() {
         createdAt: new Date().toISOString(),
       };
 
+      if (formUpi.trim()) {
+        newShopData.upiId = formUpi.trim();
+      }
+      if (formAddress.trim()) {
+        newShopData.address = formAddress.trim();
+      }
+
       // 1. Write directly to Firestore
       const docRef = await addDoc(collection(db, 'shops'), newShopData);
 
       // 2. Local state update for instant response
-      setShops((prev) => [{ id: docRef.id, ...newShopData }, ...prev]);
+      setShops((prev) => [{ id: docRef.id, ...newShopData } as any, ...prev]);
 
       // Reset modal
       setShowCreateModal(false);

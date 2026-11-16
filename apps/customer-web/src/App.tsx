@@ -235,34 +235,48 @@ export default function App() {
 
       const accessCode = Math.floor(1000 + Math.random() * 9000).toString();
 
-      const newJobData = {
+      const trimmedName = customerName.trim();
+      const trimmedPhone = customerPhone.trim();
+      const trimmedNotes = notes.trim();
+
+      const newJobData: Record<string, any> = {
         shopId: shop.id,
         shopSlug: shop.slug,
         accessCode,
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim() || undefined,
+        customerName: trimmedName,
         status: 'SUBMITTED',
         totalEstimatedPages: stagedFiles.reduce((sum, f) => sum + f.copies, 0),
-        documents: stagedFiles.map((f, i) => ({
-          id: `doc-${Date.now()}-${i}`,
-          originalName: f.file.name,
-          fileSize: f.file.size,
-          pageCount: 1,
-          colorMode: f.colorMode,
-          sides: f.sides,
-          copies: f.copies,
-          note: f.note?.trim() || undefined,
-        })),
+        documents: stagedFiles.map((f, i) => {
+          const docItem: Record<string, any> = {
+            id: `doc-${Date.now()}-${i}`,
+            originalName: f.file.name,
+            fileSize: f.file.size,
+            pageCount: 1,
+            colorMode: f.colorMode,
+            sides: f.sides,
+            copies: f.copies,
+          };
+          if (f.note?.trim()) {
+            docItem.note = f.note.trim();
+          }
+          return docItem;
+        }),
         paymentStatus: 'PENDING',
-        notes: notes.trim() || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
+      if (trimmedPhone) {
+        newJobData.customerPhone = trimmedPhone;
+      }
+      if (trimmedNotes) {
+        newJobData.notes = trimmedNotes;
+      }
+
       // 1. Write job to Cloud Firestore
       const docRef = await addDoc(collection(db, 'jobs'), newJobData);
 
-      setCurrentJob({ id: docRef.id, ...newJobData });
+      setCurrentJob({ id: docRef.id, ...newJobData } as ActiveJob);
     } catch (err: any) {
       setSubmitError(err.message || 'Submission failed. Please try again.');
     } finally {
