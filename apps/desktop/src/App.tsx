@@ -455,7 +455,7 @@ export default function DesktopApp() {
   return (
     <div className="flex h-screen bg-stone-950 text-stone-100 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-stone-900 border-r border-stone-800 flex flex-col justify-between shrink-0">
+      <aside className="no-print w-64 bg-stone-900 border-r border-stone-800 flex flex-col justify-between shrink-0">
         <div>
           {/* Shop Branding & Certificate Pill */}
           <div className="p-4 border-b border-stone-800">
@@ -612,7 +612,7 @@ export default function DesktopApp() {
             </div>
 
             {/* Big QR Code */}
-            <div className="p-4 bg-stone-50 rounded-xl border-2 border-stone-200 inline-block">
+            <div className="qr-container p-4 bg-stone-50 rounded-xl border-2 border-stone-200 inline-block">
               <QRCodeSVG
                 value={`https://printdrop-customer.vercel.app/shop/${shop.slug}`}
                 size={220}
@@ -622,7 +622,7 @@ export default function DesktopApp() {
             </div>
 
             {/* 3 Step Instructions */}
-            <div className="grid grid-cols-3 gap-2 text-left pt-2 border-t border-stone-200">
+            <div className="steps-grid grid grid-cols-3 gap-2 text-left pt-2 border-t border-stone-200">
               <div className="p-2 rounded-lg bg-stone-100">
                 <span className="block text-sm font-black text-orange-600">1</span>
                 <p className="text-[11px] font-bold text-stone-900">Scan QR Code</p>
