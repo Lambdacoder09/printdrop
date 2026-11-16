@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: printdrop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: printdrop
+      POSTGRES_PASSWORD: printdroplocalpassword
+      POSTGRES_DB: printdrop_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printdrop -d printdrop_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: printdrop-valkey
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+
+  minio:
+    image: minio/minio:RELEASE.2024-11-07T00-52-28Z
+    container_name: printdrop-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadminpassword
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  createbuckets:
+    image: minio/mc:latest
+    container_name: printdrop-mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadminpassword;
+      /usr/bin/mc mb myminio/printdrop-documents --ignore-existing;
+      /usr/bin/mc anonymous set download myminio/printdrop-documents;
+      exit 0;
+      "
+
+volumes:
+  postgres_data:
+  valkey_data:
+  minio_data:

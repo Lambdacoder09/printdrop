@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  ownerName   String
+  phone       String
+  email       String?
+  upiId       String?
+  address     String?
+  status      String   @default("ACTIVE") // ACTIVE, SUSPENDED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  pricing     ShopPricing?
+  devices     Device[]
+  jobs        Job[]
+  invoices    Invoice[]
+  auditLogs   AuditLog[]
+
+  @@map("shops")
+}
+
+model ShopPricing {
+  id             String   @id @default(uuid())
+  shopId         String   @unique
+  bwPageRate     Float    @default(2.0)
+  colorPageRate  Float    @default(10.0)
+  photocopyRate  Float    @default(2.0)
+  scanningRate   Float    @default(5.0)
+  laminationRate Float    @default(20.0)
+  updatedAt      DateTime @updatedAt
+
+  shop           Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("shop_pricing")
+}
+
+model Device {
+  id                 String        @id @default(uuid())
+  shopId             String
+  deviceName         String
+  machineFingerprint String        @unique
+  publicKey          String?
+  status             String        @default("ACTIVE") // ACTIVE, REVOKED
+  activatedAt        DateTime      @default(now())
+  lastSeenAt         DateTime?
+  certificates       Certificate[]
+
+  shop               Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("devices")
+}
+
+model Certificate {
+  id         String    @id @default(uuid())
+  deviceId   String
+  serial     String    @unique
+  publicKey  String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("certificates")
+}
+
+model Job {
+  id                  String        @id @default(uuid())
+  shopId              String
+  accessCode          String        // 4 digit verification pin e.g. "4821"
+  customerName        String
+  customerPhone       String?
+  status              String        @default("SUBMITTED") // SUBMITTED, REVIEWING, BILLED, PAID, PRINTING, READY, COMPLETED, CANCELLED
+  totalEstimatedPages Int           @default(0)
+  billingAmount       Float?
+  paymentMethod       String?       // CASH, DIRECT_UPI, GATEWAY
+  paymentStatus       String        @default("PENDING") // PENDING, CONFIRMED, REJECTED
+  paymentUpiRef       String?
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  shop                Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  documents           JobDocument[]
+  invoice             Invoice?
+
+  @@index([shopId, status])
+  @@index([shopId, accessCode])
+  @@map("jobs")
+}
+
+model JobDocument {
+  id           String   @id @default(uuid())
+  jobId        String
+  originalName String
+  fileSize     Int
+  mimeType     String
+  pageCount    Int      @default(1)
+  storageKey   String
+  previewUrl   String?
+  downloadUrl  String?
+  colorMode    String   @default("BW") // BW, COLOR
+  sides        String   @default("SINGLE") // SINGLE, DOUBLE_LONG, DOUBLE_SHORT
+  copies       Int      @default(1)
+  pageRange    String?
+  createdAt    DateTime @default(now())
+
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("job_documents")
+}
+
+model Invoice {
+  id           String        @id @default(uuid())
+  jobId        String        @unique
+  shopId       String
+  customerName String
+  subtotal     Float
+  discount     Float         @default(0)
+  total        Float
+  status       String        @default("DRAFT") // DRAFT, ISSUED, PAID
+  createdAt    DateTime      @default(now())
+
+  shop         Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  job          Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  items        InvoiceItem[]
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  description String
+  service     String
+  quantity    Int
+  rate        Float
+  amount      Float
+
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  shopId    String?
+  action    String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  shop      Shop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}

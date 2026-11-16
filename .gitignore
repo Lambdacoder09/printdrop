@@ -1,0 +1,33 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Production Builds
+dist
+build
+dist-electron
+.turbo
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Runtime / Local uploads & databases
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+postgres_data/
+valkey_data/
+minio_data/
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.vscode/
+.idea/
