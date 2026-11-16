@@ -26,6 +26,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import DocEditorModal from './components/DocEditorModal';
 import SheetEditorModal from './components/SheetEditorModal';
 import PdfViewerModal from './components/PdfViewerModal';
+import ChooseEditorModal from './components/ChooseEditorModal';
+import { convertDocumentToPdfUrl } from './utils/documentToPdf';
 import { db } from '@printdrop/shared';
 import {
   collection,
@@ -190,6 +192,7 @@ export default function DesktopApp() {
   // In-Browser Document & Sheet Editors
   const [editingDoc, setEditingDoc] = useState<JobDocument | null>(null);
   const [editingSheet, setEditingSheet] = useState<JobDocument | null>(null);
+  const [choosingEditorDoc, setChoosingEditorDoc] = useState<JobDocument | null>(null);
   const [viewingPdfDoc, setViewingPdfDoc] = useState<JobDocument | null>(null);
 
   // Cached blob URLs for uploaded document contents
@@ -365,24 +368,33 @@ export default function DesktopApp() {
     }
   };
 
-  // Auto-prefetch document blobs for selected job
+  // Auto-prefetch document blobs for selected job and convert to PDF
   useEffect(() => {
     if (!selectedJob) return;
     selectedJob.documents.forEach((d) => {
-      if (d.downloadUrl || docUrls[d.id]) return;
+      if (docUrls[d.id]) return;
       (async () => {
         try {
-          const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
-          const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
-          if (!snap.empty) {
-            let fullDataUrl = '';
-            snap.forEach((chunkDoc) => {
-              fullDataUrl += chunkDoc.data().chunk;
-            });
-            const res = await fetch(fullDataUrl);
-            const blob = await res.blob();
-            const blobUrl = URL.createObjectURL(blob);
-            setDocUrls((prev) => ({ ...prev, [d.id]: blobUrl }));
+          let fileBlob: Blob | null = null;
+          if (d.downloadUrl) {
+            const res = await fetch(d.downloadUrl);
+            fileBlob = await res.blob();
+          } else {
+            const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
+            const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
+            if (!snap.empty) {
+              let fullDataUrl = '';
+              snap.forEach((chunkDoc) => {
+                fullDataUrl += chunkDoc.data().chunk;
+              });
+              const res = await fetch(fullDataUrl);
+              fileBlob = await res.blob();
+            }
+          }
+
+          if (fileBlob) {
+            const pdfUrl = await convertDocumentToPdfUrl(fileBlob, d.originalName, d.note);
+            setDocUrls((prev) => ({ ...prev, [d.id]: pdfUrl }));
           }
         } catch (err) {
           console.warn('Could not prefetch doc:', d.originalName, err);
@@ -393,26 +405,34 @@ export default function DesktopApp() {
 
   const getDocUrl = async (d: JobDocument): Promise<string | null> => {
     if (docUrls[d.id]) return docUrls[d.id];
-    if (d.downloadUrl) return d.downloadUrl;
     if (!selectedJob) return null;
 
     setLoadingDocId(d.id);
     try {
-      const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
-      const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
-      if (snap.empty) {
-        // Document has no uploaded chunks attached (e.g. sample demo job or created prior to file upload sync)
-        return null;
+      let fileBlob: Blob | null = null;
+      if (d.downloadUrl) {
+        const res = await fetch(d.downloadUrl);
+        fileBlob = await res.blob();
+      } else {
+        const chunksRef = collection(db, 'jobs', selectedJob.id, 'files', d.id, 'chunks');
+        const snap = await getDocs(query(chunksRef, orderBy('index', 'asc')));
+        if (!snap.empty) {
+          let fullDataUrl = '';
+          snap.forEach((chunkDoc) => {
+            fullDataUrl += chunkDoc.data().chunk;
+          });
+          const res = await fetch(fullDataUrl);
+          fileBlob = await res.blob();
+        }
       }
-      let fullDataUrl = '';
-      snap.forEach((chunkDoc) => {
-        fullDataUrl += chunkDoc.data().chunk;
-      });
-      const res = await fetch(fullDataUrl);
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      setDocUrls((prev) => ({ ...prev, [d.id]: blobUrl }));
-      return blobUrl;
+
+      if (fileBlob) {
+        // Convert any file (Word, Excel, Image, Text, or PDF) to standard PDF for viewing
+        const pdfUrl = await convertDocumentToPdfUrl(fileBlob, d.originalName, d.note);
+        setDocUrls((prev) => ({ ...prev, [d.id]: pdfUrl }));
+        return pdfUrl;
+      }
+      return null;
     } catch (err: any) {
       console.warn('Document loading notice:', err.message);
       return null;
@@ -421,21 +441,15 @@ export default function DesktopApp() {
     }
   };
 
+  // Convert every document into PDF for viewing in the official viewer
   const handleViewDocument = async (d: JobDocument) => {
-    const lower = d.originalName.toLowerCase();
-    // If it's a Word or text file, open it directly in the in-browser Word clone editor
-    if (lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) {
-      setEditingDoc(d);
-      return;
-    }
-    // If it's a spreadsheet, open it directly in the in-browser Excel clone editor
-    if (lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv')) {
-      setEditingSheet(d);
-      return;
-    }
-
     setViewingPdfDoc(d);
     await getDocUrl(d);
+  };
+
+  // Ask seller to choose Word or Excel editor
+  const handleEditDocument = (d: JobDocument) => {
+    setChoosingEditorDoc(d);
   };
 
   // Windows Print Handler
@@ -982,46 +996,31 @@ export default function DesktopApp() {
 
                             {/* Print, Edit & Preview Actions */}
                             <div className="flex items-center gap-2 shrink-0">
-                              {/* Open in Word Editor Clone (if Word/Text document) */}
-                              {(lower.endsWith('.doc') || lower.endsWith('.docx') || lower.endsWith('.txt')) && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingDoc(doc)}
-                                  className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/60 text-blue-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
-                                  title="Edit in browser Word clone before printing"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" />
-                                  Edit in Word
-                                </button>
-                              )}
-
-                              {/* Open in Excel Editor Clone (if Spreadsheet) */}
-                              {isSheet && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingSheet(doc)}
-                                  className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
-                                  title="Edit in browser Excel clone before printing"
-                                >
-                                  <Table className="w-3.5 h-3.5" />
-                                  Edit in Excel
-                                </button>
-                              )}
-
-                              {/* View / Open Original PDF / File */}
+                              {/* View / Open converted PDF */}
                               <button
                                 type="button"
                                 disabled={loadingDocId === doc.id}
                                 onClick={() => handleViewDocument(doc)}
                                 className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 disabled:opacity-50"
-                                title="Open customer document in browser"
+                                title="Convert and view this document as PDF"
                               >
                                 {loadingDocId === doc.id ? (
                                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
-                                  <Eye className="w-3.5 h-3.5" />
+                                  <Eye className="w-3.5 h-3.5 text-blue-400" />
                                 )}
-                                View
+                                View (PDF)
+                              </button>
+
+                              {/* Edit Document (Ask to choose Word or Excel) */}
+                              <button
+                                type="button"
+                                onClick={() => handleEditDocument(doc)}
+                                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 border border-stone-700 hover:border-stone-600 shadow-xs"
+                                title="Open in Word or Excel editor"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                                Edit
                               </button>
 
                               {/* Print Original Document */}
@@ -1071,6 +1070,25 @@ export default function DesktopApp() {
           </main>
         </div>
       )}
+      {/* Choose Editor Modal (Ask to open in Word or Excel) */}
+      {choosingEditorDoc && (
+        <ChooseEditorModal
+          documentName={choosingEditorDoc.originalName}
+          customerNote={choosingEditorDoc.note}
+          onSelectWord={() => {
+            const targetDoc = choosingEditorDoc;
+            setChoosingEditorDoc(null);
+            setEditingDoc(targetDoc);
+          }}
+          onSelectExcel={() => {
+            const targetDoc = choosingEditorDoc;
+            setChoosingEditorDoc(null);
+            setEditingSheet(targetDoc);
+          }}
+          onClose={() => setChoosingEditorDoc(null)}
+        />
+      )}
+
       {/* Official In-Browser PDF Document Viewer Modal */}
       {viewingPdfDoc && (
         <PdfViewerModal

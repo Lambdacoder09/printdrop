@@ -44,7 +44,7 @@ export async function convertDocumentToPdfUrl(
     });
 
     const pdfBytes = await pdfDoc.save();
-    return URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+    return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
   }
 
   if (lower.endsWith('.png') || fileBlob.type.startsWith('image/png')) {
@@ -66,7 +66,7 @@ export async function convertDocumentToPdfUrl(
     });
 
     const pdfBytes = await pdfDoc.save();
-    return URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+    return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
   }
 
   // 3. Excel Spreadsheets (.xlsx, .xls, .csv)
@@ -137,7 +137,7 @@ export async function convertDocumentToPdfUrl(
       }
 
       const pdfBytes = await pdfDoc.save();
-      return URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+      return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
     } catch (e) {
       console.warn('Excel to PDF conversion fallback:', e);
     }
@@ -220,5 +220,5 @@ export async function convertDocumentToPdfUrl(
   }
 
   const pdfBytes = await pdfDoc.save();
-  return URL.createObjectURL(new Blob([pdfBytes], { type: 'application/pdf' }));
+  return URL.createObjectURL(new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' }));
 }
