@@ -19,8 +19,12 @@ import {
   ExternalLink,
   ChevronRight,
   HardDrive,
+  Edit3,
+  Table,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import DocEditorModal from './components/DocEditorModal';
+import SheetEditorModal from './components/SheetEditorModal';
 import { db } from '@printdrop/shared';
 import {
   collection,
@@ -46,6 +50,7 @@ interface JobDocument {
   colorMode: 'BW' | 'COLOR';
   sides: 'SINGLE' | 'DOUBLE_LONG';
   copies: number;
+  note?: string;
 }
 
 interface Job {
@@ -107,6 +112,10 @@ export default function DesktopApp() {
   const [customBillAmount, setCustomBillAmount] = useState<string>('');
   const [savingPrice, setSavingPrice] = useState(false);
   const [pricingForm, setPricingForm] = useState(DEFAULT_SHOP.pricing);
+
+  // In-Browser Document & Sheet Editors
+  const [editingDoc, setEditingDoc] = useState<JobDocument | null>(null);
+  const [editingSheet, setEditingSheet] = useState<JobDocument | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
 
@@ -729,47 +738,83 @@ export default function DesktopApp() {
                   </h3>
 
                   <div className="space-y-3">
-                    {selectedJob.documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="p-4 rounded-xl bg-stone-900 border border-stone-800 flex items-center justify-between gap-4"
-                      >
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-400 shrink-0">
-                            <FileText className="w-5 h-5" />
-                          </div>
-                          <div className="overflow-hidden">
-                            <h4 className="text-xs font-bold text-white truncate">{doc.originalName}</h4>
-                            <p className="text-[11px] text-stone-400">
-                              {doc.pageCount} pages • {doc.colorMode === 'COLOR' ? 'Color' : 'Black & White'} • {doc.copies} copy • {doc.sides === 'SINGLE' ? 'Single side' : 'Both sides'}
-                            </p>
-                          </div>
-                        </div>
+                    {selectedJob.documents.map((doc) => {
+                      const lower = doc.originalName.toLowerCase();
+                      const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+                      return (
+                        <div
+                          key={doc.id}
+                          className="p-4 rounded-xl bg-stone-900 border border-stone-800 space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-10 h-10 rounded-lg bg-stone-800 flex items-center justify-center text-stone-400 shrink-0">
+                                {isSheet ? <Table className="w-5 h-5 text-emerald-400" /> : <FileText className="w-5 h-5 text-blue-400" />}
+                              </div>
+                              <div className="overflow-hidden">
+                                <h4 className="text-xs font-bold text-white truncate">{doc.originalName}</h4>
+                                <p className="text-[11px] text-stone-400">
+                                  {doc.pageCount} pages • {doc.colorMode === 'COLOR' ? 'Color' : 'Black & White'} • {doc.copies} copy • {doc.sides === 'SINGLE' ? 'Single side' : 'Both sides'}
+                                </p>
+                              </div>
+                            </div>
 
-                        {/* Print / Preview Actions */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          {doc.downloadUrl && (
-                            <a
-                              href={doc.downloadUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                              View
-                            </a>
+                            {/* Print, Edit & Preview Actions */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Open in Word Editor Clone */}
+                              <button
+                                type="button"
+                                onClick={() => setEditingDoc(doc)}
+                                className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 border border-blue-700/60 text-blue-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
+                                title="Edit in browser Word clone before printing"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                Edit in Word
+                              </button>
+
+                              {/* Open in Excel Editor Clone */}
+                              <button
+                                type="button"
+                                onClick={() => setEditingSheet(doc)}
+                                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-200 text-xs font-medium rounded-lg transition flex items-center gap-1.5 shadow-xs"
+                                title="Edit in browser Excel clone before printing"
+                              >
+                                <Table className="w-3.5 h-3.5" />
+                                Edit in Excel
+                              </button>
+
+                              {doc.downloadUrl && (
+                                <a
+                                  href={doc.downloadUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  View
+                                </a>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handlePrintDocument(doc)}
+                                className="px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-sm"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                Print
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Individual document customer note / instruction */}
+                          {doc.note && (
+                            <div className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/60 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                              <span className="font-semibold text-amber-400">Customer Note on this file:</span>
+                              <span>"{doc.note}"</span>
+                            </div>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => handlePrintDocument(doc)}
-                            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 shadow-sm"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            Print
-                          </button>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
 
@@ -788,6 +833,32 @@ export default function DesktopApp() {
             )}
           </main>
         </div>
+      )}
+      {/* In-Browser Word Clone Editor Modal */}
+      {editingDoc && (
+        <DocEditorModal
+          documentName={editingDoc.originalName}
+          customerNote={editingDoc.note}
+          initialContent={`<h2 style="text-align: center;">${editingDoc.originalName}</h2><p>Customer Order: <strong>#${selectedJob?.accessCode || ''}</strong> (${selectedJob?.customerName || 'Customer'})</p><p>You can edit text, fix typos, insert tables, format headings, and print directly onto physical paper from here.</p>`}
+          onClose={() => setEditingDoc(null)}
+          onSave={(updatedHtml: string) => {
+            console.log('Saved document HTML:', updatedHtml.length);
+            setEditingDoc(null);
+          }}
+        />
+      )}
+
+      {/* In-Browser Excel Clone Spreadsheet Editor Modal */}
+      {editingSheet && (
+        <SheetEditorModal
+          documentName={editingSheet.originalName}
+          customerNote={editingSheet.note}
+          onClose={() => setEditingSheet(null)}
+          onSave={(data: any) => {
+            console.log('Saved spreadsheet sheet count:', data?.length);
+            setEditingSheet(null);
+          }}
+        />
       )}
     </div>
   );

@@ -84,6 +84,7 @@ interface UploadedDoc {
   colorMode: 'BW' | 'COLOR';
   sides: 'SINGLE' | 'DOUBLE_LONG';
   copies: number;
+  note?: string;
 }
 
 interface ActiveJob {
@@ -103,6 +104,7 @@ interface ActiveJob {
     colorMode: string;
     sides: string;
     copies: number;
+    note?: string;
   }>;
   createdAt: string;
 }
@@ -249,6 +251,7 @@ export default function App() {
           colorMode: f.colorMode,
           sides: f.sides,
           copies: f.copies,
+          note: f.note?.trim() || undefined,
         })),
         paymentStatus: 'PENDING',
         notes: notes.trim() || undefined,
@@ -495,6 +498,17 @@ export default function App() {
                           />
                         </div>
                       </div>
+
+                      {/* Custom note / instruction per file */}
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Note for this file (e.g. pages 1 to 5 only, fit to page, landscape)..."
+                          value={item.note || ''}
+                          onChange={(e) => updateFileOption(idx, 'note', e.target.value)}
+                          className="w-full text-xs px-2.5 py-1.5 rounded border border-stone-200 bg-white placeholder-stone-400 focus:border-stone-800"
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -707,14 +721,21 @@ export default function App() {
               </h3>
               <div className="divide-y divide-stone-100">
                 {currentJob.documents.map((doc) => (
-                  <div key={doc.id} className="py-2 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2 truncate">
-                      <FileText className="w-4 h-4 text-stone-500 shrink-0" />
-                      <span className="font-medium text-stone-800 truncate">{doc.originalName}</span>
+                  <div key={doc.id} className="py-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 truncate">
+                        <FileText className="w-4 h-4 text-stone-500 shrink-0" />
+                        <span className="font-medium text-stone-800 truncate">{doc.originalName}</span>
+                      </div>
+                      <span className="text-stone-500 shrink-0 ml-2">
+                        {doc.colorMode === 'COLOR' ? 'Color' : 'B&W'} • {doc.copies} copy
+                      </span>
                     </div>
-                    <span className="text-stone-500 shrink-0 ml-2">
-                      {doc.colorMode === 'COLOR' ? 'Color' : 'B&W'} • {doc.copies} copy
-                    </span>
+                    {doc.note && (
+                      <div className="text-[11px] text-amber-800 bg-amber-50 px-2.5 py-1 rounded border border-amber-200">
+                        Instruction: {doc.note}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
