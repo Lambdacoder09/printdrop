@@ -51,13 +51,26 @@ async function createWindow() {
     show: false,
   });
 
-  const devUrl = 'http://localhost:5175';
-  const isDevActive = await checkDevServer(devUrl, 800);
+  // Single-Shop Dedicated Workstation Support:
+  // e.g. electron . --shop=kishan-printing or --token=t_...
+  let shopParam = '';
+  for (const arg of process.argv) {
+    if (arg.startsWith('--shop=')) {
+      shopParam = `?shop=${arg.split('=')[1]}`;
+    } else if (arg.startsWith('--token=')) {
+      shopParam = `?token=${arg.split('=')[1]}`;
+    }
+  }
+
+  const devUrl = `http://localhost:5175${shopParam}`;
+  const isDevActive = await checkDevServer('http://localhost:5175', 800);
 
   if (isDevActive) {
     mainWindow.loadURL(devUrl);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      search: shopParam ? shopParam.substring(1) : undefined,
+    });
   }
 
   mainWindow.once('ready-to-show', () => {

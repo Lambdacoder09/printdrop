@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "electron:start": "electron ."
+    "electron:start": "electron .",
+    "electron:kishan": "electron . --shop=kishan-printing",
+    "electron:shree": "electron . --shop=shree-ganesh-xerox"
   },
   "dependencies": {
     "@casualoffice/docs": "^1.4.2",
